@@ -20,6 +20,7 @@
   --kind-framework: #1f6fcf;
   --kind-app: #2a8a3e;
   --kind-storage: #8a4b1f;
+  --kind-cloud: #9c36b5;
   --token-request: #c2255c;
   --token-response: #0b7d8f;
   --token-call: #5b3cc4;
@@ -61,6 +62,7 @@
     --kind-framework: #6aa9ff;
     --kind-app: #62d07b;
     --kind-storage: #d89d6c;
+    --kind-cloud: #e599f7;
     --token-request: #ff6b9c;
     --token-response: #3fd0e3;
     --token-call: #a98dff;
@@ -95,6 +97,7 @@
   --kind-framework: #6aa9ff;
   --kind-app: #62d07b;
   --kind-storage: #d89d6c;
+  --kind-cloud: #e599f7;
   --token-request: #ff6b9c;
   --token-response: #3fd0e3;
   --token-call: #a98dff;
@@ -460,6 +463,7 @@ h3 {
 .legend .node--framework .swatch { color: var(--kind-framework); }
 .legend .node--app .swatch { color: var(--kind-app); }
 .legend .node--storage .swatch { color: var(--kind-storage); }
+.legend .node--cloud .swatch { color: var(--kind-cloud); }
 
 .scene-host {
   position: relative;
@@ -495,6 +499,7 @@ h3 {
 .node--framework { color: var(--kind-framework); }
 .node--app { color: var(--kind-app); }
 .node--storage { color: var(--kind-storage); }
+.node--cloud { color: var(--kind-cloud); }
 
 .node.is-hidden {
   visibility: hidden;
@@ -665,6 +670,8 @@ h3 {
 .seq-head.node--container { color: var(--kind-container); }
 .seq-head.node--app { color: var(--kind-app); }
 .seq-head.node--storage { color: var(--kind-storage); }
+.seq-head.node--cloud { color: var(--kind-cloud); }
+.node--cloud { color: var(--kind-cloud); }
 
 .seq-head-label {
   font: 700 12.5px var(--font-mono);
@@ -1612,6 +1619,18 @@ h3 {
     padding: 6px 7px;
   }
 
+  .player {
+    flex-wrap: wrap;
+  }
+
+  .replay-btn .btn-text {
+    display: none;
+  }
+
+  .replay-btn {
+    padding: 8px;
+  }
+
   .overlay {
     padding: 0;
   }
@@ -1663,4 +1682,169 @@ h3 {
     animation: none !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Dev-only icon gallery (gallery.html). */
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 8px;
+  padding: 16px;
+}
+
+.gallery-cell {
+  height: 180px;
+  border-radius: 8px;
+}
+
+.icon .ghost {
+  stroke-dasharray: 4 4;
+}
+
+.icon .shackle {
+  stroke-width: 3;
+}
+
+/* Critical path vs side path (docs/DESIGN.md: the critical path is visually dominant). */
+.link--critical {
+  stroke: color-mix(in srgb, var(--accent) 55%, var(--faint));
+  stroke-width: 3;
+}
+
+.link--critical.is-active {
+  stroke: var(--accent);
+  stroke-width: 3.6;
+}
+
+.link--side {
+  stroke: var(--faint);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 6;
+}
+
+.node.is-side .icon {
+  opacity: 0.45;
+}
+
+.token--critical .token-dot {
+  r: 10;
+}
+
+.token--side .token-dot {
+  r: 6;
+}
+
+.token--side .token-pill {
+  stroke-dasharray: 3 3;
+}
+
+.token--side .token-label {
+  font-size: 12px;
+  fill: var(--muted);
+}
+
+.seq-row--side .seq-arrow {
+  stroke-dasharray: 4 4;
+  stroke-width: 1.4;
+}
+
+.seq-row--side .seq-label {
+  fill: var(--muted);
+}
+
+.chips {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.path-chip {
+  letter-spacing: 0.02em;
+  padding: 4px 7px;
+  border-radius: 6px;
+}
+
+.path-chip--critical {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.path-chip--side {
+  border: 1px dashed var(--faint);
+  color: var(--muted);
+}
+
+.log tbody tr.log-row--side td {
+  color: var(--muted);
+}
+
+.log tbody tr.log-row--side .kind-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--kind);
+}
+
+.log tbody tr:not(.log-row--decodable) .log-size {
+  color: var(--faint);
+}
+
+/* Replay: the whole critical path, continuously. */
+.replay-badge {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--surface);
+  font: 700 12px/1 var(--font-sans);
+  white-space: nowrap;
+}
+
+.replay-btn[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--surface);
+}
+
+.workspace.is-replaying .scene-panel {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* Decoder: binary hex dump and field-table-only records. */
+.decoder-raw--hex {
+  font: 13px/1.9 var(--font-mono);
+}
+
+.hex-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 6px;
+}
+
+.hex-offset {
+  width: 3.5em;
+  color: var(--faint);
+  white-space: pre;
+}
+
+.decoder-raw--hex .raw-run {
+  padding: 0 1px;
+}
+
+.decoder-body--fields {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.field-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.field-name code {
+  background: none;
+  padding: 0;
+  font-weight: 700;
+}
+
+.field-where {
+  font: 11px var(--font-mono);
+  color: var(--faint);
 }

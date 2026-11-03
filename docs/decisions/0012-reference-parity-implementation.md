@@ -3,7 +3,7 @@ status: accepted
 date: 2026-11-04
 ---
 
-# 0010. How the reference-parity screens are built
+# 0012. How the reference-parity screens are built
 
 ## Context
 

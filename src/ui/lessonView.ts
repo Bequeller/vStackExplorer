@@ -1,4 +1,4 @@
-import { changedRows, formatTime, mountLesson, speeds, type EventKind, type LessonView, type PlayerState, type SceneMode, type TimelineEvent } from '../engine';
+import { changedRows, formatTime, mountLesson, speeds, type EventKind, type LessonView, type PlacedLesson, type PlayerState, type SceneMode, type TimelineEvent } from '../engine';
 import type { Lesson, NodeKind, StateView, Step, TopicMeta } from '../lessons/types';
 import { createDecoder } from './decoder';
 import { h, inlineCode, prose, replace } from './dom';
@@ -27,7 +27,9 @@ const NODE_KIND_LABEL: Record<NodeKind, string> = {
   framework: '프레임워크',
   app: '앱 코드',
   storage: '저장소',
+  cloud: '클라우드 서비스',
 };
+const PATH_LABEL = { critical: '핵심 경로', side: '곁가지' } as const;
 const EVENT_KIND_LABEL: Record<EventKind, string> = { request: '요청', response: '응답', call: '호출', data: '데이터', state: '상태 변경' };
 
 const reducedMotion = (): boolean => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -59,10 +61,12 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
   const viewNetwork = h('button', { type: 'button', class: 'toggle-btn', 'aria-pressed': 'true', 'data-mode': 'network' }, glyph('network'), '네트워크');
   const viewSequence = h('button', { type: 'button', class: 'toggle-btn', 'aria-pressed': 'false', 'data-mode': 'sequence' }, glyph('sequence'), '시퀀스');
   const overviewBtn = h('button', { type: 'button', class: 'chip-btn' }, glyph('book'), '개요');
+  const replayBadge = h('span', { class: 'replay-badge', hidden: true }, '핵심 경로 리플레이');
   const scenePanel = h('section', { class: 'panel scene-panel', 'aria-label': '장면' },
     h('div', { class: 'scene-toolbar' },
       h('div', { class: 'view-toggle', role: 'group', 'aria-label': '보기' }, viewNetwork, viewSequence),
-      renderNodeLegend(lesson),
+      renderNodeLegend(lesson, meta),
+      replayBadge,
       overviewBtn,
     ),
     sceneHost,
@@ -98,18 +102,20 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
   const prevBtn = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '이전 단계 (←)', title: '이전 (←)' }, glyph('prev'));
   const playBtn = h('button', { type: 'button', class: 'play-btn', 'aria-label': '재생 (Space)' }, glyph('play'));
   const stepBtn = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '다음 단계 (→)', title: '다음 (→)' }, glyph('step'));
+  const replayBtn = h('button', { type: 'button', class: 'chip-btn replay-btn', 'aria-pressed': 'false', title: '핵심 경로를 멈춤 없이 한 번 재생', 'aria-label': '핵심 경로 리플레이' }, glyph('replay'), h('span', { class: 'btn-text' }, '리플레이'));
   const counter = h('span', { class: 'player-count' });
   const player = h('div', { class: 'player', role: 'group', 'aria-label': '재생 제어' },
     h('div', { class: 'speed', role: 'group', 'aria-label': '속도' }, ...speedButtons),
     h('div', { class: 'player-main' }, restartBtn, prevBtn, playBtn, stepBtn),
     counter,
+    replayBtn,
     h('span', { class: 'kbd-hint' }, '← → 단계 · Space 재생'),
   );
 
   slots.workspace.replaceChildren(scenePanel, details, logPanel, player);
 
-  const view: LessonView = mountLesson(sceneHost, lesson, startIndex, { reducedMotion });
-  const { timeline } = view;
+  const view: LessonView = mountLesson(sceneHost, lesson, meta, startIndex, { reducedMotion });
+  const { timeline, placed } = view;
   timeline.forEach((event) => {
     const row = renderLogRow(event, total);
     timelineRows.push(row);
@@ -133,6 +139,9 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
     prevBtn.disabled = index === 0;
     stepBtn.disabled = index === total - 1;
     for (const b of speedButtons) b.setAttribute('aria-pressed', String(Number(b.dataset.speed) === state.speed));
+    replayBtn.setAttribute('aria-pressed', String(state.replaying));
+    replayBadge.hidden = !state.replaying;
+    slots.workspace.classList.toggle('is-replaying', state.replaying);
     const label = `${String(index + 1).padStart(2, '0')} / ${String(total).padStart(2, '0')}`;
     counter.textContent = label;
     stepCount.textContent = `STEP ${label}`;
@@ -159,7 +168,7 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
 
     const before = index === 0 ? undefined : view.player.statesAfter(index - 1);
     const after = view.player.statesAfter(index);
-    renderDetails(details, lesson, step, index, timeline[index], {
+    renderDetails(details, placed, step, index, timeline[index], {
       before: step.kind === 'mutate' ? before?.[step.node] ?? lesson.states.find((s) => s.node === step.node)?.view : undefined,
       after: step.kind === 'mutate' ? after[step.node] : undefined,
       stateTitle: step.kind === 'mutate' ? lesson.states.find((s) => s.node === step.node)?.title : undefined,
@@ -174,6 +183,7 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
   prevBtn.addEventListener('click', () => view.player.previous());
   stepBtn.addEventListener('click', () => view.player.next());
   playBtn.addEventListener('click', () => view.player.toggle());
+  replayBtn.addEventListener('click', () => (view.player.state.replaying ? view.player.pause() : view.player.replay()));
   for (const b of speedButtons) b.addEventListener('click', () => view.player.setSpeed(Number(b.dataset.speed)));
   segbar.addEventListener('click', (e) => {
     const b = (e.target as Element).closest<HTMLElement>('[data-index]');
@@ -193,15 +203,21 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
   viewNetwork.addEventListener('click', () => setMode('network'));
   viewSequence.addEventListener('click', () => setMode('sequence'));
   overviewBtn.addEventListener('click', () => overview.open('overview'));
+  // A row with a record opens the decoder; a row without one jumps to that step.
+  const openRow = (row: HTMLElement): void => {
+    const i = Number(row.dataset.index);
+    if (lesson.steps[i]?.record) decoder.show(i);
+    else view.player.seek(i);
+  };
   logBody.addEventListener('click', (e) => {
     const row = (e.target as Element).closest<HTMLElement>('[data-index]');
-    if (row) decoder.show(Number(row.dataset.index));
+    if (row) openRow(row);
   });
   logBody.addEventListener('keydown', (e) => {
     const row = (e.target as Element).closest<HTMLElement>('[data-index]');
     if (row && (e.key === 'Enter' || e.key === ' ')) {
       e.preventDefault();
-      decoder.show(Number(row.dataset.index));
+      openRow(row);
     }
   });
   details.addEventListener('click', (e) => {
@@ -209,6 +225,7 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
     if (action === 'decode') decoder.show(view.player.state.index);
     if (action === 'overview') overview.open('overview');
     if (action === 'selfcheck') overview.open('selfcheck');
+    if (action === 'replay') view.player.replay();
   });
 
   const onKey = (event: KeyboardEvent): void => {
@@ -248,18 +265,23 @@ interface StateChange {
   stateTitle: string | undefined;
 }
 
-function renderDetails(root: HTMLElement, lesson: Lesson, step: Step, index: number, event: TimelineEvent | undefined, state: StateChange): void {
+function renderDetails(root: HTMLElement, lesson: PlacedLesson, step: Step, index: number, event: TimelineEvent | undefined, state: StateChange): void {
   const total = lesson.steps.length;
   const layer = lesson.layers.find((l) => l.id === step.layer)?.label ?? step.layer;
   const kind: EventKind = step.kind === 'move' ? step.token.kind : 'state';
-  const lines = step.lines ?? (step.record ? step.record.raw.split('\r\n').join('\n').split('\n').filter(Boolean).slice(0, 3) : [step.kind === 'move' ? step.token.label : step.title]);
-  const size = event?.bytes !== null && event?.bytes !== undefined ? `${event.bytes} bytes` : step.record ? '객체' : '—';
+  const lines = step.lines ?? (step.record?.format === 'text'
+    ? step.record.raw.split('\r\n').join('\n').split('\n').filter(Boolean).slice(0, 3)
+    : [step.kind === 'move' ? step.token.label : step.title]);
+  const size = event?.bytes !== null && event?.bytes !== undefined ? `${event.bytes} bytes` : step.record ? '필드 표' : '레코드 없음';
   const isLast = index === total - 1;
 
   replace(root,
     h('p', { class: 'step-eyebrow' },
       h('span', {}, `STEP ${index + 1} OF ${total}`),
-      h('span', { class: 'layer-chip' }, layer),
+      h('span', { class: 'chips' },
+        h('span', { class: `path-chip path-chip--${step.path}` }, PATH_LABEL[step.path]),
+        h('span', { class: 'layer-chip' }, layer),
+      ),
     ),
     h('h1', { class: 'step-title' }, ...inlineCode(step.title)),
     h('p', { class: 'step-subtitle' }, ...inlineCode(step.summary)),
@@ -276,7 +298,7 @@ function renderDetails(root: HTMLElement, lesson: Lesson, step: Step, index: num
       h('pre', { class: 'msg-lines' }, h('code', {}, lines.join('\n'))),
       h('div', { class: 'msg-foot' },
         h('span', {}, `event ${index + 1} of ${total} · ${event?.protocol ?? layer} · ${size}`),
-        h('button', { type: 'button', class: 'link-btn', 'data-action': 'decode' }, glyph('decode'), '디코드'),
+        step.record ? h('button', { type: 'button', class: 'link-btn', 'data-action': 'decode' }, glyph('decode'), '디코드') : null,
       ),
     ),
     h('details', { class: 'sources' },
@@ -287,6 +309,7 @@ function renderDetails(root: HTMLElement, lesson: Lesson, step: Step, index: num
     ),
     h('div', { class: 'details-actions' },
       h('button', { type: 'button', class: 'chip-btn', 'data-action': 'overview' }, glyph('book'), '개요'),
+      isLast ? h('button', { type: 'button', class: 'chip-btn chip-btn--accent', 'data-action': 'replay' }, glyph('replay'), '핵심 경로 리플레이') : null,
       isLast ? h('button', { type: 'button', class: 'chip-btn chip-btn--accent', 'data-action': 'selfcheck' }, `셀프 체크 ${lesson.selfCheck.length}문항 →`) : null,
     ),
   );
@@ -314,19 +337,25 @@ function renderState(title: string, before: StateView | undefined, after: StateV
 }
 
 function renderLogRow(event: TimelineEvent, total: number): HTMLTableRowElement {
-  return h('tr', { 'data-index': event.index, tabindex: '0', hidden: true, title: '클릭하면 디코더가 열립니다' },
+  return h('tr', {
+    'data-index': event.index,
+    class: `log-row--${event.path}${event.decodable ? ' log-row--decodable' : ''}`,
+    tabindex: '0',
+    hidden: true,
+    title: event.decodable ? '클릭하면 디코더가 열립니다' : '클릭하면 이 단계로 이동합니다 (디코딩할 레코드 없음)',
+  },
     h('td', { class: 'log-no' }, h('span', { class: `kind-dot kind-${event.kind}`, 'aria-label': EVENT_KIND_LABEL[event.kind] }), String(event.index + 1).padStart(String(total).length, '0')),
     h('td', { class: 'log-time' }, formatTime(event.time)),
     h('td', {}, event.source),
     h('td', {}, event.destination),
     h('td', { class: 'log-layer' }, event.layer),
     h('td', { class: 'log-info' }, ...inlineCode(event.info)),
-    h('td', { class: 'log-size' }, event.bytes !== null ? `${event.bytes} B` : '—'),
+    h('td', { class: 'log-size' }, event.bytes !== null ? `${event.bytes} B` : event.decodable ? '필드' : '—'),
   );
 }
 
-function renderNodeLegend(lesson: Lesson): HTMLElement {
-  const kinds = [...new Set(lesson.nodes.map((n) => n.kind))];
+function renderNodeLegend(lesson: Lesson, meta: TopicMeta): HTMLElement {
+  const kinds = [...new Set(meta.layout.nodes.filter((n) => lesson.nodes.includes(n.id)).map((n) => n.kind))];
   return h('ul', { class: 'legend', 'aria-label': '노드 색 범례' },
     ...kinds.map((k) => h('li', { class: `node--${k}` }, h('span', { class: 'swatch' }), NODE_KIND_LABEL[k])),
   );

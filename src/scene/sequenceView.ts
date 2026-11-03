@@ -1,4 +1,5 @@
-import type { Lesson, Step } from '../lessons/types';
+import type { Step } from '../lessons/types';
+import type { PlacedLesson, StepContext } from './driver';
 import { setAttrs, svg, text } from './svg';
 
 const AXIS = 92;
@@ -25,7 +26,7 @@ export class SequenceView {
   private readonly marker: SVGRectElement;
   private index = 0;
 
-  constructor(host: Element, lesson: Lesson, times: string[]) {
+  constructor(host: Element, lesson: PlacedLesson, times: string[]) {
     this.element = document.createElement('div');
     this.element.className = 'scene-sequence';
     host.appendChild(this.element);
@@ -63,7 +64,7 @@ export class SequenceView {
 
     lesson.steps.forEach((step, i) => {
       const y = HEAD + i * ROW + ROW / 2;
-      const group = svg('g', { class: `seq-row seq-row--${step.kind === 'move' ? step.token.kind : 'state'}`, opacity: 0 }, this.svgEl);
+      const group = svg('g', { class: `seq-row seq-row--${step.kind === 'move' ? step.token.kind : 'state'} seq-row--${step.path}`, opacity: 0 }, this.svgEl);
       text(times[i] ?? '', { class: 'seq-time', x: 12, y: y + 4 }, group);
       if (step.kind === 'move') {
         const x1 = colX(step.from);
@@ -82,7 +83,7 @@ export class SequenceView {
     });
   }
 
-  begin(_step: Step, index: number): void {
+  begin(_step: Step, index: number, _context: StepContext): void {
     this.index = index;
     this.rows.forEach((row, i) => {
       row.group.classList.toggle('is-current', i === index);

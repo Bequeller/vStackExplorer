@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { Player, type PlayerTimings } from '../src/engine/player';
 import type { Clock } from '../src/engine/clock';
-import type { NodeStates, SceneDriver } from '../src/scene/driver';
+import type { NodeStates, SceneDriver, StepContext } from '../src/scene/driver';
 import type { Lesson, Step } from '../src/lessons/types';
 
 const source = [{ url: 'https://example.org/doc', version: '1.0', label: 'doc' }];
 const lesson: Pick<Lesson, 'states' | 'steps'> = {
   states: [{ node: 'b', title: 'pool', view: { type: 'list', items: ['idle'] } }],
   steps: [
-    { id: 's1', layer: 'l', kind: 'move', from: 'a', to: 'b', token: { kind: 'request', label: 'GET /' }, title: 'one', summary: 'one', detail: 'one', facts: [], sources: source },
-    { id: 's2', layer: 'l', kind: 'mutate', node: 'b', after: { type: 'list', items: ['busy'] }, title: 'two', summary: 'two', detail: 'two', facts: [], sources: source },
-    { id: 's3', layer: 'l', kind: 'move', from: 'b', to: 'a', token: { kind: 'response', label: '200' }, title: 'three', summary: 'three', detail: 'three', facts: [], sources: source },
+    { id: 's1', layer: 'l', path: 'critical', kind: 'move', from: 'a', to: 'b', token: { kind: 'request', label: 'GET /' }, title: 'one', summary: 'one', detail: 'one', facts: [], sources: source },
+    { id: 's2', layer: 'l', path: 'side', kind: 'mutate', node: 'b', after: { type: 'list', items: ['busy'] }, title: 'two', summary: 'two', detail: 'two', facts: [], sources: source },
+    { id: 's3', layer: 'l', path: 'critical', kind: 'move', from: 'b', to: 'a', token: { kind: 'response', label: '200' }, title: 'three', summary: 'three', detail: 'three', facts: [], sources: source },
   ],
 };
-const timings: PlayerTimings = { move: 100, mutate: 50, dwell: 200 };
+const timings: PlayerTimings = { move: 100, mutate: 50, dwell: 200, replayHold: 40 };
 
 /** A clock that only moves when the test says so. */
 class ManualClock implements Clock {
@@ -47,13 +47,14 @@ interface Drawn {
   step: string;
   before?: NodeStates;
   after?: NodeStates;
+  replay?: boolean;
   t?: number;
 }
 
 class RecordingScene implements SceneDriver {
   readonly calls: Drawn[] = [];
-  begin(step: Step, _index: number, before: NodeStates, after: NodeStates): void {
-    this.calls.push({ step: step.id, before, after });
+  begin(step: Step, _index: number, before: NodeStates, after: NodeStates, context: StepContext): void {
+    this.calls.push({ step: step.id, before, after, replay: context.replay });
   }
   update(step: Step, t: number): void {
     this.calls.push({ step: step.id, t });
@@ -64,10 +65,10 @@ class RecordingScene implements SceneDriver {
   }
 }
 
-function setup(reducedMotion = false) {
+function setup(reducedMotion = false, autoReplay = false) {
   const clock = new ManualClock();
   const scene = new RecordingScene();
-  const player = new Player(lesson, scene, { clock, timings, reducedMotion: () => reducedMotion });
+  const player = new Player(lesson, scene, { clock, timings, reducedMotion: () => reducedMotion, autoReplay });
   return { clock, scene, player };
 }
 
@@ -161,6 +162,42 @@ describe('engine playback', () => {
     player.seek(2);
     player.restart();
     expect(player.state.index).toBe(0);
+  });
+
+  it('replay plays only the critical steps, back to back, then stops', () => {
+    const { clock, scene, player } = setup();
+    player.seek(2);
+    clock.advance(500);
+    const from = scene.calls.length;
+    player.replay();
+    expect(player.state.replaying).toBe(true);
+    clock.advance(240);
+    const begun = scene.calls.slice(from).filter((c) => c.before);
+    expect(begun.map((c) => c.step)).toEqual(['s1', 's3']);
+    expect(begun.every((c) => c.replay)).toBe(true);
+    expect(player.state.replaying).toBe(false);
+    expect(player.state.playing).toBe(false);
+    expect(player.state.index).toBe(2);
+  });
+
+  it('after playing through the last step, the replay starts by itself', () => {
+    const { clock, player } = setup(false, true);
+    let replayed = false;
+    player.subscribe((st) => { replayed ||= st.replaying; });
+    player.seek(0);
+    player.play();
+    clock.advance(5000);
+    expect(replayed).toBe(true);
+    expect(player.state.playing).toBe(false);
+  });
+
+  it('stepping during a replay stops it', () => {
+    const { clock, player } = setup();
+    player.replay();
+    clock.advance(30);
+    player.next();
+    expect(player.state.replaying).toBe(false);
+    expect(player.state.index).toBe(1);
   });
 
   it('with reduced motion, draws each step final frame at once', () => {

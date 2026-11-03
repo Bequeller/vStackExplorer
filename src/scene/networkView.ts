@@ -1,5 +1,5 @@
-import type { Lesson, SceneNode, StateView, Step } from '../lessons/types';
-import type { NodeStates } from './driver';
+import type { StateView, Step, TopicNode } from '../lessons/types';
+import type { NodeStates, PlacedLesson, StepContext } from './driver';
 import { ICON_TOP, drawIcon } from './icons';
 import { COS30 } from './iso';
 import { setAttrs, svg, text } from './svg';
@@ -32,17 +32,26 @@ function sameView(a: StateView | undefined, b: StateView | undefined): boolean {
 }
 
 /**
- * The illustrated network: isometric nodes on a grid. Nodes appear on the step where they are
- * first used, and the camera (the SVG viewBox) eases to frame the nodes the step uses.
+ * The illustrated network: isometric nodes on the topic's map. Critical-path nodes appear on the
+ * step where they are first used and stay; side-path nodes and links show only while a side step
+ * uses them. The camera (the SVG viewBox) eases to frame the step's nodes, or, during the replay,
+ * the whole critical path.
  */
 export class NetworkView {
   readonly element: SVGSVGElement;
-  private readonly nodes = new Map<string, SceneNode>();
+  private readonly nodes = new Map<string, TopicNode>();
   private readonly groups = new Map<string, SVGGElement>();
   private readonly badges = new Map<string, SVGGElement>();
   private readonly links = new Map<string, SVGLineElement>();
   private readonly firstUse = new Map<string, number>();
   private readonly linkFirstUse = new Map<string, number>();
+  /** Links used by at least one critical move. Other links are side links. */
+  private readonly criticalLinks = new Set<string>();
+  /** Nodes used by at least one critical step. Other nodes are side-only. */
+  private readonly criticalNodes = new Set<string>();
+  /** Nodes that draw in during the current step. */
+  private entering = new Set<string>();
+  private replay = false;
   private readonly initial: NodeStates;
   private readonly token: SVGGElement;
   private readonly tokenDot: SVGCircleElement;
@@ -56,7 +65,7 @@ export class NetworkView {
   private cameraFrom: Box;
   private cameraTo: Box;
 
-  constructor(host: Element, private readonly lesson: Lesson) {
+  constructor(host: Element, private readonly lesson: PlacedLesson) {
     const id = `vse-${++sceneCount}`;
     this.element = svg('svg', {
       class: 'scene-network',
@@ -70,7 +79,7 @@ export class NetworkView {
     const pattern = svg('pattern', { id: `${id}-grid`, width: tileW, height: 32, patternUnits: 'userSpaceOnUse' }, defs);
     svg('path', { class: 'grid-line', d: `M0,0 L${tileW},32 M0,32 L${tileW},0` }, pattern);
 
-    const { width, height } = lesson.scene;
+    const { width, height } = lesson.world;
     svg('rect', { class: 'grid', x: -1000, y: -1000, width: width + 2000, height: height + 2000, fill: `url(#${id}-grid)` }, this.element);
 
     const linkLayer = svg('g', { class: 'links' }, this.element);
@@ -78,13 +87,19 @@ export class NetworkView {
     const tokenLayer = svg('g', { class: 'token-layer' }, this.element);
 
     lesson.steps.forEach((step, i) => {
+      const critical = step.path === 'critical';
       if (step.kind === 'move') {
         if (!this.firstUse.has(step.from)) this.firstUse.set(step.from, i === 0 ? -1 : i);
         if (!this.firstUse.has(step.to)) this.firstUse.set(step.to, i);
         const key = linkKey(step.from, step.to);
         if (!this.linkFirstUse.has(key)) this.linkFirstUse.set(key, i);
-      } else if (!this.firstUse.has(step.node)) {
-        this.firstUse.set(step.node, i);
+        if (critical) {
+          this.criticalLinks.add(key);
+          this.criticalNodes.add(step.from).add(step.to);
+        }
+      } else {
+        if (!this.firstUse.has(step.node)) this.firstUse.set(step.node, i);
+        if (critical) this.criticalNodes.add(step.node);
       }
     });
 
@@ -101,7 +116,8 @@ export class NetworkView {
       if (!a || !b) continue;
       const [ax, ay] = anchor(a);
       const [bx, by] = anchor(b);
-      this.links.set(key, svg('line', { class: 'link', x1: ax, y1: ay, x2: bx, y2: by, opacity: 0 }, linkLayer));
+      const cls = this.criticalLinks.has(key) ? 'link link--critical' : 'link link--side';
+      this.links.set(key, svg('line', { class: cls, x1: ax, y1: ay, x2: bx, y2: by, opacity: 0 }, linkLayer));
     }
 
     this.token = svg('g', { class: 'token', opacity: 0 }, tokenLayer);
@@ -115,18 +131,35 @@ export class NetworkView {
     this.applyCamera(this.camera);
   }
 
-  begin(step: Step, index: number, after: NodeStates): void {
+  begin(step: Step, index: number, after: NodeStates, context: StepContext): void {
     this.index = index;
     this.step = step;
+    this.replay = context.replay;
     const involved = this.involved(step);
+    this.entering = new Set();
 
     for (const [nodeId, group] of this.groups) {
       const first = this.firstUse.get(nodeId) ?? Infinity;
-      const shown = first < index;
-      const entering = first === index;
+      const isCritical = this.criticalNodes.has(nodeId);
+      const isUsedNow = involved.includes(nodeId);
+      let shown: boolean;
+      let entering: boolean;
+      if (context.replay) {
+        // The replay shows the whole critical path at once: that is the picture to recall.
+        shown = isCritical;
+        entering = false;
+      } else if (isCritical) {
+        shown = first < index;
+        entering = first === index;
+      } else {
+        // Side-only nodes appear only while a side step uses them.
+        shown = false;
+        entering = isUsedNow;
+      }
+      if (entering) this.entering.add(nodeId);
       group.classList.toggle('is-hidden', !shown && !entering);
-      group.classList.toggle('is-entering', entering);
-      group.classList.toggle('is-active', involved.includes(nodeId));
+      group.classList.toggle('is-side', !isCritical);
+      group.classList.toggle('is-active', isUsedNow);
       setAttrs(group, { opacity: shown ? 1 : 0 });
       const node = this.nodes.get(nodeId);
       if (node) setAttrs(group, { transform: `translate(${node.x} ${node.y})` });
@@ -140,14 +173,17 @@ export class NetworkView {
       }
     }
 
+    const current = step.kind === 'move' ? linkKey(step.from, step.to) : '';
     for (const [key, line] of this.links) {
       const first = this.linkFirstUse.get(key) ?? Infinity;
-      line.classList.toggle('is-active', step.kind === 'move' && key === linkKey(step.from, step.to));
-      setAttrs(line, { opacity: first < index ? 1 : 0 });
+      const critical = this.criticalLinks.has(key);
+      line.classList.toggle('is-active', key === current);
+      const shown = context.replay ? critical : critical ? first < index : false;
+      setAttrs(line, { opacity: shown ? 1 : 0 });
     }
 
     if (step.kind === 'move') {
-      this.token.setAttribute('class', `token token--${step.token.kind}`);
+      this.token.setAttribute('class', `token token--${step.token.kind} token--${step.path}`);
       this.tokenText.textContent = step.token.label;
       this.tokenWidth = textWidth(step.token.label, 14) + 18;
       setAttrs(this.tokenPill, { width: this.tokenWidth });
@@ -158,20 +194,23 @@ export class NetworkView {
     }
 
     this.cameraFrom = this.camera;
-    this.cameraTo = this.frameFor(involved);
+    this.cameraTo = context.replay ? this.frameFor([...this.criticalNodes]) : this.frameFor(involved);
   }
 
   update(step: Step, t: number): void {
     // Nodes and links that first appear on this step draw in.
     for (const [nodeId, group] of this.groups) {
-      if (this.firstUse.get(nodeId) !== this.index) continue;
+      if (!this.entering.has(nodeId)) continue;
       const node = this.nodes.get(nodeId);
       if (!node) continue;
       const appear = Math.min(1, t * 1.6);
       setAttrs(group, { opacity: appear, transform: `translate(${node.x} ${node.y + (1 - appear) * 18})` });
     }
+    const current = step.kind === 'move' ? linkKey(step.from, step.to) : '';
     for (const [key, line] of this.links) {
-      if (this.linkFirstUse.get(key) === this.index) setAttrs(line, { opacity: Math.min(1, t * 2) });
+      const firstHere = this.linkFirstUse.get(key) === this.index && this.criticalLinks.has(key);
+      const sideNow = key === current && !this.criticalLinks.has(key);
+      if (!this.replay && (firstHere || sideNow)) setAttrs(line, { opacity: Math.min(1, t * 2) });
     }
     if (step.kind === 'move') this.placeToken(step, t);
 
@@ -184,7 +223,7 @@ export class NetworkView {
   /** Re-aims the camera at the current step at once, e.g. after the element was resized. */
   refit(): void {
     if (!this.step) return;
-    this.camera = this.frameFor(this.involved(this.step));
+    this.camera = this.frameFor(this.replay ? [...this.criticalNodes] : this.involved(this.step));
     this.cameraFrom = this.camera;
     this.cameraTo = this.camera;
     this.applyCamera(this.camera);
@@ -194,7 +233,7 @@ export class NetworkView {
     return step.kind === 'move' ? [step.from, step.to] : [step.node];
   }
 
-  private drawNode(layer: SVGGElement, node: SceneNode): void {
+  private drawNode(layer: SVGGElement, node: TopicNode): void {
     const group = svg('g', {
       class: `node node--${node.kind} is-hidden`,
       transform: `translate(${node.x} ${node.y})`,
@@ -251,7 +290,7 @@ export class NetworkView {
       y0 = Math.min(y0, n.y - ICON_TOP - 50);
       y1 = Math.max(y1, n.y + 76);
     }
-    if (!Number.isFinite(x0)) return { x: 0, y: 0, w: this.lesson.scene.width, h: this.lesson.scene.height };
+    if (!Number.isFinite(x0)) return { x: 0, y: 0, w: this.lesson.world.width, h: this.lesson.world.height };
     const rect = this.element.getBoundingClientRect();
     const aspect = rect.width > 0 && rect.height > 0 ? rect.width / rect.height : 1.6;
     let w = Math.max(x1 - x0 + 80, MIN_FRAME.w);
@@ -268,7 +307,7 @@ export class NetworkView {
   }
 }
 
-function anchor(node: SceneNode): [number, number] {
+function anchor(node: TopicNode): [number, number] {
   return [node.x, node.y - ANCHOR_Z];
 }
 

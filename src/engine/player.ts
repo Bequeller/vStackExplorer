@@ -11,25 +11,31 @@ export interface PlayerTimings {
   mutate: number;
   /** While playing, how long a finished step stays on screen before the next one, in ms. */
   dwell: number;
+  /** In a replay with reduced motion, how long each step stays before the next one, in ms. */
+  replayHold: number;
 }
 
-export const defaultTimings: PlayerTimings = { move: 1200, mutate: 900, dwell: 2800 };
+export const defaultTimings: PlayerTimings = { move: 1200, mutate: 900, dwell: 2800, replayHold: 600 };
+
+/** Playback speeds offered by the player controls. */
+export const speeds = [0.5, 1, 2] as const;
 
 export interface PlayerOptions {
   clock?: Clock;
   /** Read on every step, so a change to the system setting applies at once. */
   reducedMotion?: () => boolean;
   timings?: PlayerTimings;
+  /** Start the replay by itself when playback reaches the end of the last step. Default true. */
+  autoReplay?: boolean;
 }
-
-/** Playback speeds offered by the player controls. */
-export const speeds = [0.5, 1, 2] as const;
 
 export interface PlayerState {
   /** Current step, 0-based. */
   index: number;
   total: number;
   playing: boolean;
+  /** True while the end-of-lesson replay runs. */
+  replaying: boolean;
   /** Speed multiplier: 2 plays twice as fast. */
   speed: number;
   /** True while the current step's animation runs. */
@@ -39,16 +45,18 @@ export interface PlayerState {
 type Phase = 'idle' | 'animating' | 'dwell';
 
 /**
- * Step playback: play, pause, next, previous, seek.
+ * Step playback: play, pause, next, previous, seek, and the end-of-lesson replay.
  * Knows no topic: it reads steps and node states and tells the scene what to draw.
  */
 export class Player {
   private readonly steps: readonly Step[];
   private readonly initial: NodeStates;
   private readonly after: NodeStates[];
+  private readonly critical: number[];
   private readonly clock: Clock;
   private readonly reducedMotion: () => boolean;
   private readonly timings: PlayerTimings;
+  private readonly autoReplay: boolean;
   private readonly listeners = new Set<(state: PlayerState) => void>();
 
   private index = 0;
@@ -57,6 +65,8 @@ export class Player {
   private phaseStart = 0;
   private frameHandle: number | null = null;
   private speed = 1;
+  /** Remaining critical step indexes while a replay runs; null when not replaying. */
+  private replayQueue: number[] | null = null;
 
   constructor(
     lesson: Pick<Lesson, 'states' | 'steps'>,
@@ -67,9 +77,11 @@ export class Player {
     this.steps = lesson.steps;
     this.initial = initialStates(lesson);
     this.after = statesAfterEachStep(lesson);
+    this.critical = lesson.steps.flatMap((s, i) => (s.path === 'critical' ? [i] : []));
     this.clock = options.clock ?? browserClock;
     this.reducedMotion = options.reducedMotion ?? (() => false);
     this.timings = options.timings ?? defaultTimings;
+    this.autoReplay = options.autoReplay ?? true;
   }
 
   get state(): PlayerState {
@@ -77,6 +89,7 @@ export class Player {
       index: this.index,
       total: this.steps.length,
       playing: this.playing,
+      replaying: this.replayQueue !== null,
       speed: this.speed,
       animating: this.phase === 'animating',
     };
@@ -93,37 +106,30 @@ export class Player {
     return () => this.listeners.delete(listener);
   }
 
-  /** Go to a step and play its animation. Out-of-range indexes are clamped. */
+  /** Go to a step and play its animation. Out-of-range indexes are clamped. Stops a replay. */
   seek(index: number): void {
-    this.cancelFrame();
-    this.index = this.clamp(index);
-    const step = this.currentStep();
-    const before = this.index === 0 ? this.initial : this.statesAfter(this.index - 1);
-    this.scene.begin(step, this.index, before, this.statesAfter(this.index));
-    if (this.reducedMotion()) {
-      this.scene.update(step, 1);
-      this.enterAfterAnimation();
-    } else {
-      this.setPhase('animating');
-    }
-    this.emit();
+    this.stopReplay();
+    this.show(index);
   }
 
   next(): void {
-    if (this.index < this.steps.length - 1) this.seek(this.index + 1);
+    this.stopReplay();
+    if (this.index < this.steps.length - 1) this.show(this.index + 1);
     else this.pause();
   }
 
   previous(): void {
-    if (this.index > 0) this.seek(this.index - 1);
+    this.stopReplay();
+    if (this.index > 0) this.show(this.index - 1);
   }
 
   play(): void {
     if (this.playing) return;
+    this.stopReplay();
     this.playing = true;
     const atEnd = this.index === this.steps.length - 1 && this.phase !== 'animating';
     if (atEnd) {
-      this.seek(0);
+      this.show(0);
       return;
     }
     if (this.phase === 'idle') this.setPhase('dwell');
@@ -133,7 +139,11 @@ export class Player {
   pause(): void {
     if (!this.playing) return;
     this.playing = false;
-    if (this.phase === 'dwell') {
+    if (this.replayQueue) {
+      this.stopReplay();
+      this.cancelFrame();
+      this.phase = 'idle';
+    } else if (this.phase === 'dwell') {
       this.cancelFrame();
       this.phase = 'idle';
     }
@@ -160,10 +170,55 @@ export class Player {
     this.seek(0);
   }
 
+  /**
+   * Plays every critical step once, in order, continuously: no dwell between steps. Ends on
+   * the last critical step. Any seek, step, play, or pause stops it.
+   */
+  replay(): void {
+    if (this.critical.length === 0) return;
+    this.replayQueue = [...this.critical];
+    this.playing = true;
+    this.advanceReplay();
+  }
+
   destroy(): void {
     this.cancelFrame();
     this.listeners.clear();
     this.scene.destroy();
+  }
+
+  private stopReplay(): void {
+    if (this.replayQueue === null) return;
+    this.replayQueue = null;
+    this.playing = false;
+  }
+
+  private advanceReplay(): void {
+    const next = this.replayQueue?.shift();
+    if (next === undefined) {
+      this.replayQueue = null;
+      this.playing = false;
+      this.phase = 'idle';
+      this.emit();
+      return;
+    }
+    this.show(next);
+  }
+
+  /** Draws step `index` and starts its animation. */
+  private show(index: number): void {
+    this.cancelFrame();
+    this.index = this.clamp(index);
+    const step = this.currentStep();
+    const before = this.index === 0 ? this.initial : this.statesAfter(this.index - 1);
+    this.scene.begin(step, this.index, before, this.statesAfter(this.index), { replay: this.replayQueue !== null });
+    if (this.reducedMotion()) {
+      this.scene.update(step, 1);
+      this.enterAfterAnimation();
+    } else {
+      this.setPhase('animating');
+    }
+    this.emit();
   }
 
   private currentStep(): Step {
@@ -187,7 +242,11 @@ export class Player {
   }
 
   private enterAfterAnimation(): void {
-    if (this.playing) {
+    if (this.replayQueue) {
+      // With motion, go straight on; with reduced motion, hold briefly so the replay is visible.
+      if (this.reducedMotion()) this.setPhase('dwell');
+      else this.advanceReplay();
+    } else if (this.playing) {
       this.setPhase('dwell');
     } else {
       this.phase = 'idle';
@@ -223,12 +282,17 @@ export class Player {
       return;
     }
     if (this.phase === 'dwell') {
-      if (elapsed < this.timings.dwell / this.speed) {
+      const hold = this.replayQueue ? this.timings.replayHold : this.timings.dwell;
+      if (elapsed < hold / this.speed) {
         this.requestFrame();
         return;
       }
-      if (this.index < this.steps.length - 1) {
-        this.seek(this.index + 1);
+      if (this.replayQueue) {
+        this.advanceReplay();
+      } else if (this.index < this.steps.length - 1) {
+        this.show(this.index + 1);
+      } else if (this.autoReplay) {
+        this.replay();
       } else {
         this.phase = 'idle';
         this.playing = false;

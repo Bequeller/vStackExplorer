@@ -65,6 +65,7 @@ Defined once as CSS custom properties in `src/styles/app.css`, with light and da
 | Node `framework` | `--kind-framework` (blue) | Framework infrastructure: `DispatcherServlet`, Buffer Pool |
 | Node `app` | `--kind-app` (green) | Code the application developer writes |
 | Node `storage` | `--kind-storage` (brown) | Persistent state: disk, table, log |
+| Node `cloud` | `--kind-cloud` (grape) | A managed cloud service the team does not run: EKS API, STS, EC2 API, ALB (decision 0013) |
 | Token `request` | `--token-request` (magenta) | An inbound request |
 | Token `response` | `--token-response` (teal) | An outbound response |
 | Token `call` | `--token-call` (violet) | A method call inside the process |
@@ -74,8 +75,66 @@ Defined once as CSS custom properties in `src/styles/app.css`, with light and da
 
 Changed rows in a node-state panel get the `--hl` background; the old value fades out with a strike-through while the new one fades in.
 
+## Critical path and replay
+
+- A step is `critical` or `side` (`path` in the lesson). Critical links are solid-colored and thick, and the critical token is larger. Side links are thin and dotted, side tokens are smaller with a dashed label, and side-only nodes are dimmed and appear only while a side step uses them.
+- The step details show a "핵심 경로" or "곁가지" chip; side rows in the event log are muted with a hollow dot; side arrows in the sequence view are dashed.
+- Replay: after playback passes the last step, the critical steps play once, back to back, with no dwell. The camera frames the whole critical path, all critical nodes are visible, and a "핵심 경로 리플레이" badge shows. The replay button in the player and the last step's details start it at any time.
+
+## Icons
+
+Every node picks one of these `IconKind` illustrations (`src/scene/icons.ts`, our own isometric line art). Run `npm run dev` and open `/vStackExplorer/gallery.html` to see them all. The table maps the nodes in `docs/research/` to icons; pick by what the node is, not by its topic.
+
+| IconKind | Draws | Use for (examples from the plans) |
+|---|---|---|
+| `laptop` | laptop | client, `redis-cli`, `mysql` client, developer with `kubectl`, producer/consumer apps when shown as a machine |
+| `globe` | globe on a stand | internet users, external endpoint |
+| `server` | server tower | Tomcat, containerd, a generic process, Redis master when shown as a host |
+| `filter-stack` | stacked plates | Servlet filters, netfilter chains, admission gates |
+| `hub` | layered disc | `DispatcherServlet`, a central dispatcher |
+| `index` | table with lookup arrow | `HandlerMapping`, InnoDB page hash, EndpointSlice |
+| `adapter` | block with prongs | `HandlerAdapter`, `ha_innobase` handler |
+| `converter` | bytes → object slab | message converters, Kafka serializer |
+| `controller` | box with code panel | web controller |
+| `service` | box with cog | service bean, application server (`order-api`) |
+| `repository` | drawer cabinet | repository / DAO |
+| `database` | cylinder | MySQL behind a cache, any database |
+| `thread` | gear with loop arrow | Redis main / I/O / bio thread, InnoDB purge thread, `log_writer`, page cleaner, Kafka sender thread |
+| `queue` | conveyor with blocks | LRU list, flush list, free list, replication buffer, log buffer, record accumulator |
+| `memory` | memory module | OS page cache, copy-on-write memory pages |
+| `lock` | padlock | `lock_sys`, record locks |
+| `snapshot` | camera | MySQL `ReadView` |
+| `buffer-pool` | rack of page frames | InnoDB buffer pool |
+| `page` | page slab with rows | a B+Tree page, root or leaf, doublewrite slots |
+| `btree` | root above two leaves | a whole B+Tree index |
+| `log-file` | stacked slabs, append arrow | redo, undo, binlog, AOF, `__cluster_metadata` |
+| `disk` | drive with platter | `t.ibd` tablespace, `dump.rdb` on disk |
+| `file` | sheet with folded corner | a single file: `temp-<pid>.rdb`, `.dblwr`, `NodeConfig` |
+| `folder` | folder with files | Kafka partition directory, `appendonlydir/` |
+| `producer` | box sending crates | Kafka producer |
+| `broker` | tower with log strips | Kafka broker |
+| `partition-log` | segmented strip | a partition log, active segment, `__consumer_offsets` partition |
+| `consumer` | box receiving crates | Kafka consumer |
+| `coordinator` | tower with roster | group coordinator, transaction coordinator |
+| `quorum` | three linked towers | KRaft controller quorum |
+| `keyspace` | cabinet with key tags | Redis keyspace (`db0`), expires dict |
+| `replica` | server with a dashed primary behind | Redis replica, Kafka follower |
+| `sentinel` | watchtower | Redis Sentinel |
+| `slot-map` | ring cut into shards | Redis Cluster slot map |
+| `cloud` | cloud over a platform | AWS control plane, EKS API, EC2 API, IMDS |
+| `etcd` | three cylinders | etcd |
+| `api-server` | block with three gates | kube-apiserver |
+| `scheduler` | desk with pods and a flag | kube-scheduler, kube-controller-manager, Karpenter |
+| `kubelet` | box with a helm wheel | kubelet |
+| `k8s-node` | platform with pods | EC2 worker node |
+| `pod` | translucent capsule | Pod |
+| `eni` | network card | ENI, cross-account ENI |
+| `load-balancer` | box fanning out | ALB / NLB, kube-proxy Service routing |
+| `iam` | key on a badge | IAM role, STS, OIDC provider, EKS Pod Identity |
+
 ## Layout and theme
 
+- One map per topic: node positions live in the topic's `meta.ts` (`layout`), so every lesson in the topic draws on the same map.
 - Desktop: the app shell in "Required screens"; the step list lives in the drawer-style lesson outline and in the segmented progress bar, not as a long column.
 - Phone (≤ 900px): top bar collapses to drawer button, title, and step n/N. Then the scene (camera keeps the active nodes in frame, so no horizontal scroller), the step details, the event log, and sticky player controls. No page-level horizontal scroll, 16px side gutter.
 - Light and dark themes from CSS custom properties, following the system setting, with a manual toggle remembered in `localStorage`.

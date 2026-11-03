@@ -20,25 +20,69 @@ export type NodeKind =
   | 'container' // runtime that hosts the app: servlet container, kubelet, OS
   | 'framework' // framework infrastructure: DispatcherServlet, Buffer Pool
   | 'app' // code the application developer writes: controller, service
-  | 'storage'; // persistent state: disk, table, log
+  | 'storage' // persistent state: disk, table, log
+  | 'cloud'; // a managed cloud service the team does not run: EKS API, STS, EC2 API, ALB (decision 0012)
 
-/** Which isometric illustration the scene draws for a node. */
+/**
+ * Which isometric illustration the scene draws for a node. docs/DESIGN.md (Icons) maps the
+ * nodes in docs/research/ to these. Pick by what the node is, not by its topic.
+ */
 export type IconKind =
-  | 'laptop' // a client machine
-  | 'server' // a server or container process, e.g. Tomcat
-  | 'filter-stack' // a chain of filters or interceptors
+  // Clients and generic components
+  | 'laptop' // a client machine, a developer, a CLI
+  | 'globe' // the internet, outside users
+  | 'server' // a server or container process, e.g. Tomcat, containerd
+  | 'filter-stack' // a chain of filters, interceptors, or rules (netfilter)
   | 'hub' // a central dispatcher, e.g. DispatcherServlet
-  | 'index' // a lookup table, e.g. HandlerMapping
-  | 'adapter' // something that adapts one call shape to another
-  | 'converter' // something that turns bytes into objects or back
+  | 'index' // a lookup table, e.g. HandlerMapping, page hash, EndpointSlice
+  | 'adapter' // something that adapts one call shape to another, e.g. ha_innobase
+  | 'converter' // something that turns bytes into objects or back, e.g. a serializer
   | 'controller' // a web controller
-  | 'service' // a service bean
+  | 'service' // a service bean, an application server
   | 'repository' // a repository or DAO
   | 'database' // a database
-  | 'k8s-node'; // a Kubernetes node
+  | 'thread' // a thread or event loop: Redis main / I/O thread, purge thread, log writer
+  | 'queue' // a list or buffer that items move along: LRU list, flush list, repl buffer, log buffer
+  | 'memory' // memory pages: OS page cache, copy-on-write pages
+  | 'lock' // a lock table or lock system
+  | 'snapshot' // a consistent view taken at a point in time: MySQL ReadView
+  // Storage
+  | 'buffer-pool' // a cache of fixed-size page frames: InnoDB buffer pool
+  | 'page' // one fixed-size page with records: a B+Tree page
+  | 'btree' // a B+Tree (root above leaves)
+  | 'log-file' // an append-only log on disk: redo, undo, binlog, AOF, Raft log
+  | 'disk' // a disk or tablespace file
+  | 'file' // a single file: dump.rdb, doublewrite file, a config file
+  | 'folder' // a directory of files: a Kafka partition directory, appendonlydir
+  // Messaging (Kafka)
+  | 'producer' // something that sends records
+  | 'broker' // a message broker
+  | 'partition-log' // a partition's log of segments
+  | 'consumer' // something that reads records
+  | 'coordinator' // a group or transaction coordinator
+  | 'quorum' // a set of voters: a KRaft controller quorum
+  // Key-value (Redis)
+  | 'keyspace' // a keyspace or dictionary of keys
+  | 'replica' // a replica of another server
+  | 'sentinel' // a watcher that fails over a primary
+  | 'slot-map' // a hash-slot map across shards
+  // Cloud and Kubernetes (EKS)
+  | 'cloud' // a cloud control plane or managed service
+  | 'etcd' // etcd: a replicated key-value store
+  | 'api-server' // the Kubernetes API server
+  | 'scheduler' // the Kubernetes scheduler
+  | 'kubelet' // the kubelet agent on a node
+  | 'k8s-node' // a Kubernetes worker node
+  | 'pod' // a Pod
+  | 'eni' // an elastic network interface
+  | 'load-balancer' // a load balancer
+  | 'iam' // identity: IAM role, STS, OIDC provider
 
-/** A component on the scene. x and y are the base center of the illustration, in scene units. */
-export interface SceneNode {
+/**
+ * A component on the topic's map. x and y are the base center of the illustration, in scene
+ * units. Nodes live in the topic layout (meta.ts), so every lesson in a topic shares one map.
+ */
+export interface TopicNode {
   id: string;
   /** Short name under the illustration. Keep it under ~20 characters. */
   label: string;
@@ -49,6 +93,20 @@ export interface SceneNode {
   x: number;
   y: number;
 }
+
+/**
+ * The topic's map: where each component sits. Lay it out so the critical path reads in one
+ * direction (outside → inside, caller → callee, memory above disk). docs/DESIGN.md (Principles).
+ */
+export interface TopicLayout {
+  /** World size in scene units; the camera frames parts of it. */
+  width: number;
+  height: number;
+  nodes: TopicNode[];
+}
+
+/** Whether a step is on the critical path (drawn dominant, replayed) or a side path (drawn weaker). */
+export type PathKind = 'critical' | 'side';
 
 /** A group of steps shown in the layer selector and the event log, e.g. "Servlet", "Spring MVC". */
 export interface Layer {
@@ -105,38 +163,72 @@ export interface RecordSegment {
 export interface RecordField {
   name: string;
   value: string;
-  /** One-line meaning. */
+  /** One-line meaning. Required: the decoder shows it next to every field. */
   note: string;
   /** The `RecordSegment` id this field belongs to. */
   segment: string;
   /**
-   * The exact text of this field inside `raw`. Fields are matched in order, each after the
-   * previous one, so the decoder can link a field to its bytes. Omit for derived fields.
+   * `format: 'text'` only: the exact text of this field inside `raw`. Spans are matched in
+   * field order, each after the previous one. Omit for a derived field.
    */
   span?: string;
-  /** True when the value changes per run (a date, an id). The decoder tags it "E.G.". */
+  /** `format: 'binary'` only: the field's first byte, counted from the start of `hex`. */
+  offset?: number;
+  /** `format: 'binary'` only: the field's length in bytes. */
+  length?: number;
+  /** True when the value changes per run (a date, an id, an LSN). The decoder tags it "E.G.". */
   example?: boolean;
 }
 
-/** A decoded structure shown field by field: an HTTP message, a record header, a Pod spec. */
-export interface DecodedRecord {
+interface RecordBase {
   title: string;
-  /** The protocol or format, e.g. "HTTP/1.1", "JSON", "Java object". */
+  /** The protocol or format, e.g. "HTTP/1.1", "RESP2", "InnoDB page", "Java object". */
   protocol: string;
-  /**
-   * The raw form. When `wire` is true it is the exact bytes as text (use \r\n for CRLF),
-   * and the decoder shows its size in bytes. Otherwise it is a readable dump.
-   */
-  raw: string;
-  wire: boolean;
+  /** Bands of the decoder's layer bar, in order. */
   segments: RecordSegment[];
   fields: RecordField[];
 }
+
+/** Real bytes on the wire or on disk that are text: HTTP, RESP. `raw` uses \r\n for CRLF. */
+export interface TextRecord extends RecordBase {
+  wire: true;
+  format: 'text';
+  raw: string;
+}
+
+/**
+ * Real bytes on the wire or on disk that are binary: an InnoDB page header, a Kafka request.
+ * `hex` is the bytes as two-digit hex pairs separated by spaces. Fields give `offset` and `length`.
+ */
+export interface BinaryRecord extends RecordBase {
+  wire: true;
+  format: 'binary';
+  hex: string;
+  /** Offset of the first byte of `hex` inside the larger structure, for display (e.g. 38). */
+  baseOffset?: number;
+}
+
+/** Not bytes: an in-memory struct, a Kubernetes object, CLI output. The decoder shows a field table. */
+export interface FieldsRecord extends RecordBase {
+  wire: false;
+  format: 'fields';
+}
+
+/**
+ * A decoded structure shown field by field. It lives on the step that shows it (there is no
+ * lesson-level list); to show the same record on two steps, put it in a const and reuse it.
+ */
+export type DecodedRecord = TextRecord | BinaryRecord | FieldsRecord;
 
 interface StepBase {
   id: string;
   /** The `Layer` id this step belongs to. */
   layer: string;
+  /**
+   * `critical`: the main path a request, write, or event takes; drawn dominant and replayed at
+   * the end. `side`: a failure branch or detour; drawn weaker and shown only while it is used.
+   */
+  path: PathKind;
   title: string;
   /** One line under the title, also used in the event log's info column. */
   summary: string;
@@ -146,12 +238,13 @@ interface StepBase {
   facts: Fact[];
   /** Key lines of the current message, shown in the message card (at most 4). */
   lines?: string[];
+  /** The message this step shows in the decoder. Steps without one cannot be decoded. */
   record?: DecodedRecord;
   /** At least one. Every fact in the step must be backed by one of these. */
   sources: Source[];
 }
 
-/** Something travels from one node to another: a request, a call, a return value. */
+/** Something travels from one node to another: a request, a call, a return value. It never changes state. */
 export interface MoveStep extends StepBase {
   kind: 'move';
   from: string;
@@ -159,7 +252,10 @@ export interface MoveStep extends StepBase {
   token: Token;
 }
 
-/** State changes inside one node. `after` replaces the node's state view. */
+/**
+ * State changes inside one node. The node must have a `states` entry, and `after` is that
+ * node's whole view after the step (same type, same columns), not only the changed rows.
+ */
 export interface MutateStep extends StepBase {
   kind: 'mutate';
   node: string;
@@ -192,10 +288,9 @@ export interface Lesson {
   summary: string;
   /** Must equal the topic's meta.versions. */
   versions: Record<string, string>;
-  /** World size in scene units; the camera frames parts of it. */
-  scene: { width: number; height: number };
   layers: Layer[];
-  nodes: SceneNode[];
+  /** Ids of the topic layout's nodes this lesson uses. Every one must be used by a step. */
+  nodes: string[];
   states: NodeState[];
   steps: Step[];
   overview: OverviewSection[];
@@ -218,4 +313,6 @@ export interface TopicMeta {
   checkedOn: string;
   /** Lesson ids in study order. */
   lessons: string[];
+  /** The topic's one map, shared by all its lessons. */
+  layout: TopicLayout;
 }

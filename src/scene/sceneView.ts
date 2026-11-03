@@ -1,5 +1,5 @@
-import type { Lesson, Step } from '../lessons/types';
-import type { NodeStates, SceneDriver, SceneMode } from './driver';
+import type { Step } from '../lessons/types';
+import type { NodeStates, PlacedLesson, SceneDriver, SceneMode, StepContext } from './driver';
 import { NetworkView } from './networkView';
 import { SequenceView } from './sequenceView';
 
@@ -10,7 +10,7 @@ export class SceneView implements SceneDriver {
   private readonly sequence: SequenceView;
   private readonly resize: ResizeObserver | null;
 
-  constructor(host: HTMLElement, lesson: Lesson, times: string[]) {
+  constructor(host: HTMLElement, lesson: PlacedLesson, times: string[]) {
     this.root = document.createElement('div');
     this.root.className = 'scene-views';
     host.appendChild(this.root);
@@ -29,9 +29,9 @@ export class SceneView implements SceneDriver {
     else this.sequence.reveal();
   }
 
-  begin(step: Step, index: number, _before: NodeStates, after: NodeStates): void {
-    this.network.begin(step, index, after);
-    this.sequence.begin(step, index);
+  begin(step: Step, index: number, _before: NodeStates, after: NodeStates, context: StepContext): void {
+    this.network.begin(step, index, after, context);
+    this.sequence.begin(step, index, context);
   }
 
   update(step: Step, t: number): void {

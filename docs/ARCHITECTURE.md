@@ -1,6 +1,6 @@
 ---
 last-verified: 2026-11-04
-sources: [docs/decisions/0002-vite-vanilla-ts-svg.md, docs/decisions/0003-lessons-as-sourced-data.md, docs/decisions/0004-sources-pinned-to-release-tags.md, docs/decisions/0005-lesson-files-and-engine-api.md, docs/decisions/0007-csp-in-built-site.md, docs/decisions/0010-reference-parity-implementation.md]
+sources: [docs/decisions/0002-vite-vanilla-ts-svg.md, docs/decisions/0003-lessons-as-sourced-data.md, docs/decisions/0004-sources-pinned-to-release-tags.md, docs/decisions/0005-lesson-files-and-engine-api.md, docs/decisions/0007-csp-in-built-site.md, docs/decisions/0010-research-review-scope.md, docs/decisions/0011-north-star-structure-and-flow.md, docs/decisions/0012-reference-parity-implementation.md, docs/decisions/0013-shared-schema-rules-and-icons.md, docs/decisions/0014-topic-map-critical-path-replay.md]
 ---
 
 # Architecture
@@ -9,52 +9,86 @@ sources: [docs/decisions/0002-vite-vanilla-ts-svg.md, docs/decisions/0003-lesson
 
 | Module | Owns | Must not |
 |---|---|---|
-| `src/engine/` | Step playback (play, pause, next, previous, seek, restart, speed), timing, easing, reduced-motion handling, the event timeline (`timeline.ts`), record layout (`record.ts`), lesson validation (`validate.ts`) | Know any topic |
-| `src/scene/` | Our own isometric illustrations (`iso.ts`, `icons.ts`), the network view with progressive reveal, eased camera, links, tokens, and state badges (`networkView.ts`), the sequence view (`sequenceView.ts`), and the `SceneDriver` interface (`driver.ts`) | Hold lesson text; draw node-state tables |
+| `src/engine/` | Step playback (play, pause, next, previous, seek, restart, speed, replay), timing, easing, reduced-motion handling, topic placement (`place.ts`), the event timeline (`timeline.ts`), record layout (`record.ts`), validation (`validate.ts`) | Know any topic |
+| `src/scene/` | Our own isometric illustrations (`iso.ts`, `icons.ts`), the network view with progressive reveal, eased camera, critical/side links, tokens, and state badges (`networkView.ts`), the sequence view (`sequenceView.ts`), and the `SceneDriver` interface (`driver.ts`) | Hold lesson text; draw node-state tables |
 | `src/ui/` | The app shell (top bar, topic drawer), step details, event log, decoder, overview sheet, player controls, theme, routing, progress, lesson registry | Touch SVG internals directly (it calls `mountLesson` from `engine`) |
-| `src/lessons/<topic>/` | One folder per topic: `meta.ts` (title, order, pinned versions, lesson ids) and one `<lesson-id>.ts` per lesson | Import anything but `src/lessons/types.ts` — not even a sibling file |
+| `src/lessons/<topic>/` | One folder per topic: `meta.ts` (title, group, order, pinned versions, lesson ids, and the topic's map) and one `<lesson-id>.ts` per lesson | Import anything but `src/lessons/types.ts` — not even a sibling file |
 | `src/lessons/types.ts` | The lesson schema types | Depend on anything else |
 | `src/styles/` | Theme tokens, layout, scene classes, `@font-face` | Hold per-lesson styles |
+| `src/gallery.ts`, `gallery.html` | Dev-only icon gallery (`npm run dev`, then `/vStackExplorer/gallery.html`); not built | Ship in `dist/` |
 | `tests/` | Schema, import-rule, and playback tests | Test implementation details |
 
 ## Dependency direction
 
 `ui` → `engine` → `scene`; all may read `lessons/types.ts`. Only `ui` loads lesson data (through `import.meta.glob` in `ui/registry.ts`). Lessons import only `lessons/types.ts`. Enforced by `tests/imports.test.ts`.
 
-The engine's public API (`src/engine/index.ts`) is `mountLesson(host, lesson, startIndex, options)`, which draws both scene views and returns a `LessonView`: the `Player`, the event `timeline`, and `setMode('network' | 'sequence')`. `Player` takes any `SceneDriver` (`begin(step, index, before, after)`, `update(step, t)`), so tests drive it with a fake scene and a manual clock. The UI also uses `layoutRecord()` for the decoder and `changedRows()` for state changes.
+The engine's public API (`src/engine/index.ts`) is `mountLesson(host, lesson, meta, startIndex, options)`. It places the lesson on its topic's map (`placeLesson`), draws both scene views, and returns a `LessonView`: the `Player`, the `placed` lesson, the event `timeline`, and `setMode('network' | 'sequence')`. `Player` takes any `SceneDriver` (`begin(step, index, before, after, { replay })`, `update(step, t)`), so tests drive it with a fake scene and a manual clock. The UI also uses `layoutRecord()` for the decoder and `changedRows()` for state changes.
 
 ## Lesson format
 
-A lesson is a typed data object (`Lesson` in `src/lessons/types.ts`), exported as `lesson` from `src/lessons/<topic>/<lesson-id>.ts`. The file name must equal `id`, and `id` must be listed in the topic's `meta.ts` (`export const meta: TopicMeta`). The URL is `#/<topic>/<lesson-id>[/<step>]`.
+A topic folder holds `meta.ts` (`export const meta: TopicMeta`) and one file per lesson (`export const lesson: Lesson`, file name = lesson `id`). The URL is `#/<topic>/<lesson-id>[/<step>]`. Every rule below is checked by `validateTopic` / `validateLesson` (`src/engine/validate.ts`), which `tests/lesson-schema.test.ts` runs on every topic and lesson.
 
-- `id`, `topic`, `title`, `subtitle` (short name for the drawer and top bar), `summary`, `versions` (for example `{ "Spring Boot": "4.1.2" }`, checked against the official site when written). `versions` must equal the topic's `meta.versions`; lessons cannot import `meta.ts`, so the schema test checks they match.
-- `scene`: the world size in scene units (the Spring lesson uses 1320 × 960). The camera frames part of it at each step.
-- `layers`: the lesson's layers (for example Servlet, Spring MVC, Application), shown in the top bar's layer selector and the event log.
-- `nodes`: components with a base-center position, a label, an optional sublabel, a `kind` that picks the color (`client`, `container`, `framework`, `app`, `storage`; see `docs/DESIGN.md`), and an `icon` that picks the illustration (`laptop`, `server`, `filter-stack`, `hub`, `index`, `adapter`, `converter`, `controller`, `service`, `repository`, `database`, `k8s-node`). A node appears on the step where it is first used.
-- `states`: a node's inner state (a `table` or a `list`) and its initial content. It is not drawn on the scene: the node shows a badge once a `mutate` step changes it, and the step details show the change. A `mutate` step can only change a node that has one.
-- `steps`: ordered list. Each step has:
-  - `kind`: `move` (a token travels between nodes, like a request or a packet) or `mutate` (state changes inside one node, like a B+Tree page split, a lock being granted, or an IP attached to an ENI).
-  - `move` has `from`, `to`, and a `token` (`kind`: `request`, `response`, `call`, or `data`, plus a short label).
-  - `mutate` has `node` and `after`: the node's whole state view after the step. The engine computes each step's before/after states; the scene highlights the rows that changed.
-  - `id`, `layer`, `title`, `summary` (the subtitle and the event log's info; at most 90 characters), `detail` (Korean prose, at most 320 characters, about 5 lines; `` `code` `` is rendered as code), `facts` (2 to 4 key/value rows), and optional `lines` (up to 4 key lines for the message card).
-  - `record` (optional): a decoded message for the decoder: `title`, `protocol`, `raw`, `wire` (true when `raw` is the exact bytes, with `\r\n` for CRLF; the size is then counted from it), `segments` (the bands of the layer bar), and `fields`. Each field has its real `name`, `value`, a one-line `note`, its `segment`, an optional `span` (its exact text in `raw`; spans are matched in field order so hovering links field and bytes), and `example: true` for per-run values (tagged "E.G.").
-  - `sources`: at least one `{ url, version, label }` pointing to official documentation or source code. Pin URLs to the release tag (see decision 0004).
+### Topic: `meta.ts`
+
+- `topic` (= folder name), `title`, `group` (drawer tab: `Spring`, `MySQL`, `Kafka`, `Redis`, `EKS`), `summary`, `order`, `versions` (pinned, checked on the official site on `checkedOn`), `lessons` (ids in study order).
+- `layout`: the topic's one map, shared by all its lessons (docs/DESIGN.md: one layout per topic). `width`, `height`, and `nodes`. Each node has `id`, `label`, optional `sublabel`, `kind`, `icon`, and the base-center `x`, `y` of its illustration.
+  - `kind` picks the color: `client`, `container`, `framework`, `app`, `storage`, `cloud` (docs/DESIGN.md, Color meaning).
+  - `icon` picks the illustration: one of the `IconKind`s in docs/DESIGN.md (Icons).
+  - Place the critical path so it reads in one direction (outside → inside, caller → callee, memory above disk). Leave room for later lessons: a node may be on the map before any lesson uses it.
+
+### Lesson
+
+- `id`, `topic`, `title`, `subtitle` (short name for the drawer and top bar), `summary`, `versions` (must equal `meta.versions`; lessons cannot import `meta.ts`).
+- `layers`: the lesson's layers (for example Servlet, Spring MVC, Application), shown in the layer selector and the event log.
+- `nodes`: the ids of the topic map's nodes this lesson uses. Each must be in `meta.layout`, and each must be used by a step.
+- `states`: a node's inner state (`table` with `columns` and `rows`, or `list` with `items`) with a `title` and the initial content. It is not drawn on the scene: the node shows a badge once a `mutate` step changes it, and the step details show the change.
+- `steps`: about 8 to 12, one mechanism (decision 0010). Each step has:
+  - `id`, `layer`, `title`, `summary` (≤ 90 characters; the subtitle and the event log's info), `detail` (Korean, ≤ 320 characters, about 5 lines), `facts` (2 to 4 rows), optional `lines` (≤ 4 key lines for the message card), `sources` (≥ 1 `{ url, version, label }`, pinned to a release tag; decision 0004).
+  - `path`: `critical` (the main path; drawn dominant and replayed) or `side` (a failure branch or detour; drawn weaker, shown only while used). The first step is critical.
+  - `kind: 'move'` with `from`, `to`, and a `token` (`kind`: `request`, `response`, `call`, or `data`, and a short `label`). A move never changes state: it has no `node` or `after`.
+  - `kind: 'mutate'` with `node` and `after`. The node must have a `states` entry, and `after` is its **whole** view after the step: the same type, the same columns, every row. It must differ from the view before the step.
+  - `record` (optional): the message this step shows in the decoder. Records live only on steps; there is no lesson-level list. To show the same record on two steps, put it in a `const` in the lesson file. A step without a record cannot be decoded: its event-log row jumps to the step instead.
 - `overview`: lesson-level sections (`title`, `body`, `sources`) for the longer explanation behind the "개요" button.
 - `selfCheck`: questions with answers, answered without the page.
 
-`src/engine/validate.ts` checks the rules types cannot express (sources, node and layer references, fact and prose limits, record spans and segments, state shapes, no functions). `tests/lesson-schema.test.ts` runs it on every lesson.
+### Records
 
-The event log's time column is the playback timeline at 1× (step animation plus dwell), not a measured latency; sizes appear only for `wire` records (decision 0010).
+Every record has `title`, `protocol`, `segments` (the bands of the decoder's layer bar), `fields`, and says whether it is real bytes:
+
+| `format` | `wire` | Raw data | Field position | Use for |
+|---|---|---|---|---|
+| `text` | `true` | `raw`: the exact text, `\r\n` for CRLF | `span`: the field's exact text in `raw`, matched in field order | HTTP, RESP, any text protocol |
+| `binary` | `true` | `hex`: two-digit hex bytes separated by spaces; optional `baseOffset` for display | `offset` and `length` in bytes from the start of `hex`, in byte order, not overlapping | InnoDB page and record headers, Kafka request and record batch, any binary format |
+| `fields` | `false` | none | none | in-memory structs, Kubernetes objects, CLI or API output. The decoder shows a field table |
+
+Each field has its real `name`, `value`, a one-line `note`, its `segment`, and `example: true` for values that change per run (tagged "E.G."). Show only fields an engineer reads in practice (docs/PRODUCT.md, must-know only). Wire sizes are counted from the bytes.
+
+The event log's time column is the playback timeline at 1× (step animation plus dwell), not a measured latency; sizes appear only for wire records (decision 0012).
+
+## Authoring a topic
+
+1. Read `docs/PRODUCT.md` (north star, must-know only), `docs/DESIGN.md` (Principles, Icons), and your plan in `docs/research/`.
+2. Create `src/lessons/<topic>/meta.ts` with `export const meta: TopicMeta`. Design the topic's map first: every node the topic's lessons will need, placed so the critical path reads in one direction. Pick each node's `kind` and `icon` from the tables in `docs/DESIGN.md`. If no icon fits, ask for one in the shared engine; do not edit `src/scene/` from a topic session.
+3. Create `src/lessons/<topic>/<lesson-id>.ts` with `export const lesson: Lesson`, importing only `type`s from `../types`. Add its id to `meta.lessons`. Use the Spring lesson (`src/lessons/spring-boot/request-flow.ts`) as the worked example.
+4. Mark each step `critical` or `side`, and give each step only the facts and decoder fields that pass the must-know rule.
+5. Run, and fix every message:
+   - `npm run check` (types and lint)
+   - `npm test` (schema, import rules, playback). The schema test prints every rule a lesson breaks.
+   - `npm run build`
+   - `scripts/check-docs.sh .`
+6. Open the lesson in a browser (`npm run dev`, or `npm run build && npm run preview`) and play it through, including the replay, in both themes and at phone width. Check the console stays clean.
+7. Commit only inside `src/lessons/<topic>/` (and `docs/` for that topic's notes).
 
 ## Invariants
 
 - Every step has at least one source with a URL and a version — enforced by the lesson schema test.
-- Lessons contain no functions or engine imports — enforced by the import test.
+- Lessons contain no functions or engine imports — enforced by the schema and import tests.
+- Lesson nodes come from the topic map; a move never changes state; a mutate gives a state-bearing node's whole new view; records live on steps and say whether they are wire bytes — enforced by the schema test.
 - The site runs from static files with no external requests at runtime — enforced by a CSP meta tag (`default-src 'self'`) in `index.html`. The dev server drops that tag because Vite injects inline styles in dev; the built site keeps it (decision 0007). No inline `style` attributes or `data:` assets: styling goes through classes or the CSSOM, and `assetsInlineLimit` is 0.
 
 ## Data flow
 
-URL hash (`#/<topic>/<lesson>[/<step>]`; `#/` opens the first lesson with the drawer) → `ui` loads the lesson data → `engine` builds the timeline and plays the steps → `scene` reveals nodes, moves the camera, and draws `move` and `mutate` steps in both views → `ui` shows the step details, grows the event log, and writes the step number back to the hash with `history.replaceState`. Progress per lesson (started, done) is kept in `localStorage`.
+URL hash (`#/<topic>/<lesson>[/<step>]`; `#/` opens the first lesson with the drawer) → `ui` loads the lesson and its topic's `meta` → `engine` places the lesson on the topic map, builds the timeline, and plays the steps → `scene` reveals nodes, moves the camera, and draws `move` and `mutate` steps in both views → `ui` shows the step details, grows the event log, and writes the step number back to the hash with `history.replaceState`. After the last step, the player replays the critical steps once. Progress per lesson (started, done) is kept in `localStorage`.
 
 ## Deploy
 
