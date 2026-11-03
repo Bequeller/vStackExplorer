@@ -77,10 +77,18 @@ export function validateLesson(lesson: Lesson, meta: TopicMeta): string[] {
   // Nodes come from the topic layout, so every lesson in the topic shares one map.
   const layoutIds = new Set((meta.layout?.nodes ?? []).map((n) => n.id));
   const nodeIds = new Set<string>();
-  for (const id of lesson.nodes ?? []) {
-    if (typeof id !== 'string') {
+  for (const ref of lesson.nodes ?? []) {
+    if (ref === null || (typeof ref !== 'string' && typeof ref?.id !== 'string')) {
       at('nodes', 'list node ids from the topic layout (positions live in meta.ts)');
       continue;
+    }
+    const id = typeof ref === 'string' ? ref : ref.id;
+    if (typeof ref !== 'string') {
+      unknownKeys(ref, ['id', 'label', 'sublabel', 'kind', 'icon'], (k) =>
+        at(`node ${id}`, `"${k}" cannot be set per lesson; positions and other fields live in the topic layout`));
+      if (ref.kind !== undefined && !NODE_KINDS.includes(ref.kind)) at(`node ${id}`, `kind must be one of ${NODE_KINDS.join(', ')}`);
+      if (ref.icon !== undefined && !iconKinds.includes(ref.icon)) at(`node ${id}`, `icon "${ref.icon}" is not an IconKind`);
+      if (ref.label !== undefined && !nonEmpty(ref.label)) at(`node ${id}`, 'label override is empty');
     }
     if (nodeIds.has(id)) at(`node ${id}`, 'listed twice');
     nodeIds.add(id);

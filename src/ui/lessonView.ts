@@ -62,10 +62,11 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
   const viewSequence = h('button', { type: 'button', class: 'toggle-btn', 'aria-pressed': 'false', 'data-mode': 'sequence' }, glyph('sequence'), '시퀀스');
   const overviewBtn = h('button', { type: 'button', class: 'chip-btn' }, glyph('book'), '개요');
   const replayBadge = h('span', { class: 'replay-badge', hidden: true }, '핵심 경로 리플레이');
+  const legendHost = h('div', { class: 'legend-host' });
   const scenePanel = h('section', { class: 'panel scene-panel', 'aria-label': '장면' },
     h('div', { class: 'scene-toolbar' },
       h('div', { class: 'view-toggle', role: 'group', 'aria-label': '보기' }, viewNetwork, viewSequence),
-      renderNodeLegend(lesson, meta),
+      legendHost,
       replayBadge,
       overviewBtn,
     ),
@@ -116,6 +117,7 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
 
   const view: LessonView = mountLesson(sceneHost, lesson, meta, startIndex, { reducedMotion });
   const { timeline, placed } = view;
+  legendHost.replaceWith(renderNodeLegend(placed));
   timeline.forEach((event) => {
     const row = renderLogRow(event, total);
     timelineRows.push(row);
@@ -354,8 +356,8 @@ function renderLogRow(event: TimelineEvent, total: number): HTMLTableRowElement 
   );
 }
 
-function renderNodeLegend(lesson: Lesson, meta: TopicMeta): HTMLElement {
-  const kinds = [...new Set(meta.layout.nodes.filter((n) => lesson.nodes.includes(n.id)).map((n) => n.kind))];
+function renderNodeLegend(lesson: PlacedLesson): HTMLElement {
+  const kinds = [...new Set(lesson.nodes.map((n) => n.kind))];
   return h('ul', { class: 'legend', 'aria-label': '노드 색 범례' },
     ...kinds.map((k) => h('li', { class: `node--${k}` }, h('span', { class: 'swatch' }), NODE_KIND_LABEL[k])),
   );

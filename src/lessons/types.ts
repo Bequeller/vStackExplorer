@@ -105,6 +105,18 @@ export interface TopicLayout {
   nodes: TopicNode[];
 }
 
+/**
+ * A lesson's use of a topic-map node. Position always comes from the topic layout; a lesson may
+ * relabel a node for its role there (e.g. Kafka's `log` is `users-0` in the compaction lesson).
+ */
+export interface LessonNodeOverride {
+  id: string;
+  label?: string;
+  sublabel?: string;
+  kind?: NodeKind;
+  icon?: IconKind;
+}
+
 /** Whether a step is on the critical path (drawn dominant, replayed) or a side path (drawn weaker). */
 export type PathKind = 'critical' | 'side';
 
@@ -289,8 +301,11 @@ export interface Lesson {
   /** Must equal the topic's meta.versions. */
   versions: Record<string, string>;
   layers: Layer[];
-  /** Ids of the topic layout's nodes this lesson uses. Every one must be used by a step. */
-  nodes: string[];
+  /**
+   * The topic layout's nodes this lesson uses: an id, or an id with a per-lesson label, sublabel,
+   * kind, or icon. Positions never change per lesson. Every listed node must be used by a step.
+   */
+  nodes: (string | LessonNodeOverride)[];
   states: NodeState[];
   steps: Step[];
   overview: OverviewSection[];

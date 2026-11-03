@@ -15,7 +15,7 @@ Decision 0011 sets the north star: the structure and the critical-path flow, imp
 
 ## Decision
 
-- **Topic map**: node identity and position live in the topic's `meta.ts` (`layout`). A lesson lists the ids it uses, and `placeLesson` resolves them. Validation rejects ids that are not on the map.
+- **Topic map**: node identity and position live in the topic's `meta.ts` (`layout`). A lesson lists the ids it uses, and `placeLesson` resolves them. Validation rejects ids that are not on the map. A lesson may relabel a node for its role (label, sublabel, kind, icon), as the re-cut Kafka and Redis plans do, but may not move it.
 - **Critical vs side**: every step has `path: 'critical' | 'side'`.
   - Critical links and tokens are drawn dominant.
   - Side links, tokens, and side-only nodes are weaker and appear only while a side step uses them.

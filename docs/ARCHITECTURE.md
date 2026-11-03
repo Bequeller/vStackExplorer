@@ -35,12 +35,13 @@ A topic folder holds `meta.ts` (`export const meta: TopicMeta`) and one file per
   - `kind` picks the color: `client`, `container`, `framework`, `app`, `storage`, `cloud` (docs/DESIGN.md, Color meaning).
   - `icon` picks the illustration: one of the `IconKind`s in docs/DESIGN.md (Icons).
   - Place the critical path so it reads in one direction (outside → inside, caller → callee, memory above disk). Leave room for later lessons: a node may be on the map before any lesson uses it.
+  - Spacing: an illustration with its label needs about 220 units across and 240 down (the Spring map uses a 240-unit grid). Plans in `docs/research/` that give positions on a 1000 × 640 grid should be scaled by about 2.
 
 ### Lesson
 
 - `id`, `topic`, `title`, `subtitle` (short name for the drawer and top bar), `summary`, `versions` (must equal `meta.versions`; lessons cannot import `meta.ts`).
 - `layers`: the lesson's layers (for example Servlet, Spring MVC, Application), shown in the layer selector and the event log.
-- `nodes`: the ids of the topic map's nodes this lesson uses. Each must be in `meta.layout`, and each must be used by a step.
+- `nodes`: the topic map's nodes this lesson uses. Each entry is an id, or `{ id, label?, sublabel?, kind?, icon? }` to relabel a node for its role in this lesson (for example Kafka's `log` as `users-0`). The position never changes per lesson. Each id must be in `meta.layout`, and each listed node must be used by a step.
 - `states`: a node's inner state (`table` with `columns` and `rows`, or `list` with `items`) with a `title` and the initial content. It is not drawn on the scene: the node shows a badge once a `mutate` step changes it, and the step details show the change.
 - `steps`: about 8 to 12, one mechanism (decision 0010). Each step has:
   - `id`, `layer`, `title`, `summary` (≤ 90 characters; the subtitle and the event log's info), `detail` (Korean, ≤ 320 characters, about 5 lines), `facts` (2 to 4 rows), optional `lines` (≤ 4 key lines for the message card), `sources` (≥ 1 `{ url, version, label }`, pinned to a release tag; decision 0004).

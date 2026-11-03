@@ -131,6 +131,16 @@ describe('lesson schema', () => {
     expect(has(errorsFor(noPath), 'path must be "critical" or "side"')).toBe(true);
   });
 
+  it('lets a lesson relabel a map node but not move it', () => {
+    const relabeled = copy();
+    relabeled.nodes = relabeled.nodes.map((n) => (n === 'tomcat' ? { id: 'tomcat', label: 'Tomcat (node A)' } : n));
+    expect(errorsFor(relabeled)).toEqual([]);
+
+    const moved = copy();
+    moved.nodes = moved.nodes.map((n) => (n === 'tomcat' ? ({ id: 'tomcat', x: 10 } as unknown as string) : n));
+    expect(has(errorsFor(moved), 'cannot be set per lesson')).toBe(true);
+  });
+
   it('lays out a binary record by byte offsets, with segment sizes for the layer bar', () => {
     const layout = layoutRecord({
       title: 'two fields',
