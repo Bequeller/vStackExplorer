@@ -1,1146 +1,1289 @@
 ---
-last-verified: 2026-11-03
+last-verified: 2026-11-04
 sources: [https://github.com/apache/kafka/tree/4.4.0]
 ---
 
 # Kafka lesson plan (research)
 
-The content plan for the Kafka topic. It is research only: plain Markdown, no TypeScript, because the engine and lesson schema are being redesigned in parallel. Every fact below names a source pinned to the Apache Kafka `4.4.0` release tag. A fact without a source is marked **unverified**.
+The content plan for the Kafka topic. It is research only: plain Markdown, no TypeScript. This is revision 3. It applies two sets of rules:
+
+- The 2026-11-04 review (decision 0010): one mechanism per lesson, about 8 to 12 steps. A `move` never changes state. A `mutate` targets a node with a state panel and gives the panel's whole `after` view. Every decoder belongs to a step and says whether it is `wire`.
+- The north star and the must-know rule (decision 0011): structure and critical path imprinted in 3 or fewer viewings, one layout for the whole topic, a dominant critical path, a replay at the end, and only what an engineer meets in design, operations, debugging, or incidents.
 
 ## Version and source policy
 
-- **Pinned version: Apache Kafka 4.4.0.** It is the highest non-RC `x.y.z` tag in `github.com/apache/kafka` on 2026-11-03 (`git ls-remote --tags`: `… 4.3.2, 4.4.0`). Tag commit `1156b2752aaa28eafc0b4c4d387e63356793268d`, dated 2026-10-06. `gradle.properties` at the tag says `version=4.4.0`.
-- **kafka.apache.org and cwiki.apache.org (where the KIPs live) were blocked** for this session by the network policy (proxy 403 and DNS failure). So I could not check the downloads page that names the "current release", and I could not read any KIP page. What I used instead:
-  - The official documentation **source**, which lives in the Kafka repository under `docs/` (Markdown since 4.x). It is the same text kafka.apache.org renders. Decision 0004 prefers these tag-pinned URLs anyway.
-  - The source code at the same tag.
-  - Facts that only a KIP page states are marked **unverified (KIP not readable)**. Where the 4.4.0 docs quote a KIP's status (for example "KIP-848 is GA since 4.0"), the docs are the source.
-- URL form: `https://github.com/apache/kafka/blob/4.4.0/<path>#L<from>-L<to>`. Below, `K/` stands for `https://github.com/apache/kafka/blob/4.4.0/`. Expand it when the plan becomes lesson data.
+- **Pinned version: Apache Kafka 4.4.0.** The highest non-RC tag in `github.com/apache/kafka` (tag commit `1156b2752aaa28eafc0b4c4d387e63356793268d`). The review confirmed it is the latest release on kafka.apache.org/downloads, released 2026-10-22.
+- **Primary sources** are the official documentation source in the repository (`docs/`, the text kafka.apache.org renders) and the code, both at tag `4.4.0`. `K/` stands for `https://github.com/apache/kafka/blob/4.4.0/`. Expand it when the plan becomes lesson data.
+- **KIP pages are secondary sources.** This session cannot reach cwiki.apache.org (proxy 403). KIP short links are copied from links in the 4.4.0 docs.
 - `versions` for every Kafka lesson: `{ "Apache Kafka": "4.4.0" }`.
 
-## Topic shape
+## Conventions
 
-| Order | Lesson id | Mechanism | Why this order |
-|---|---|---|---|
-| 1 | `producer-send` | Producer send path: serializer → partitioner → `RecordAccumulator` → `Sender` → `acks` → idempotent sequence | Most-asked "how does Kafka not lose or duplicate data" question; it introduces the record batch, which every other lesson reuses |
-| 2 | `broker-log` | Partition log on disk: segments, sparse index, page cache, `sendfile` | "Why is Kafka fast?" Depends on the batch from lesson 1 |
-| 3 | `replication` | Leader/follower fetch, ISR, high watermark, `min.insync.replicas`, unclean election and ELR | "`acks=all` is still lossy when…?" Depends on lessons 1 and 2 |
-| 4 | `consumer-group` | Group coordinator, classic eager vs cooperative rebalance, KIP-848 `consumer` protocol, offset commit to `__consumer_offsets` | Ordering, scaling, and duplicate-processing questions |
-| 5 | `transactions` | Exactly-once: `transactional.id`, transaction coordinator, markers, LSO, `read_committed` | Senior-level follow-up to lessons 1 and 4 |
-| 6 | `kraft-metadata` | KRaft controller quorum, `__cluster_metadata`, broker heartbeats and fencing, ISR change as a metadata record | "What replaced ZooKeeper?" Ties the ISR and producer-id stories together |
+- **Step header:** `S<n> · move|mutate · <node(s)> · <layer>`.
+- **`move`** gives `from → to` and a **token**: `kind` (`request`, `response`, `call`, `data`) and `label`. A `move` has no state change.
+- **`mutate`** names one node with a state panel. **After** is that panel's whole view, one row per ` / `. **Before** is given only where the change is subtle.
+- **Path:** each step is `critical` (on the lesson's critical path, drawn dominant) or `side` (failure branch or comparison, drawn weaker).
+- **Decoder** lines name a record from "Decoder records" and say `wire: yes` (bytes on the network at this hop) or `wire: no` (memory or disk).
+- **Event log:** `source → destination · layer · info · size or duration`. Per-run values and every illustrative latency are marked E.G.
+- **Layers** (selector values, the same in every lesson): **Client**, **Network**, **Broker**, **Storage**, **Controller**.
+- **Replay:** every lesson ends with a full, continuous replay of the hops on its "Replay" line. The replay is not a new step.
 
-Layer-selector values used across the topic, the same in every lesson: **Client** (producer/consumer library), **Network** (Kafka wire protocol), **Broker** (request handling, partitions, coordinators), **Storage** (log files, page cache), **Controller** (KRaft quorum). Each step names its layer, and the event log's layer column uses these values.
+## Topic layout
 
-Node kinds map onto the existing color kinds in `docs/DESIGN.md`: application code → `app`; Kafka client library internals (`RecordAccumulator`, `Sender`, `ConsumerCoordinator`) → `framework`; broker / OS → `container`; logs, segments, internal topics → `storage`; external caller → `client`. The redesign may add a `controller` kind; until then the KRaft controller is `framework`.
+One fixed map for all Kafka lessons. Scene units are 1000 × 640. Each lesson shows only the nodes it uses, always at these positions.
+
+- Producers are on the left, brokers in the middle, consumers on the right, so data flows left to right.
+- Coordinators and the controller sit in the top row.
+- Memory is above disk: broker memory is in row 3, logs and internal topics in row 4.
+
+| id | Label (default) | Kind | Position (x, y) | Row | Illustration |
+|---|---|---|---|---|---|
+| `txcoord` | Transaction coordinator | `framework` | (260, 70) | 1 · coordinators | Server tower with ledger and gavel |
+| `controller` | KRaft controller quorum | `framework` | (500, 70) | 1 | Control tower with three beacons |
+| `coord` | Group coordinator | `framework` | (760, 70) | 1 | Server tower with roster clipboard |
+| `producer` | Producer app + `KafkaProducer` | `app` | (80, 250) | 2 · clients and brokers | Service box feeding a funnel and a rail switch |
+| `accumulator` | `RecordAccumulator` | `framework` | (80, 380) | 2 | Rack of per-partition trays |
+| `sender` | `Sender` thread | `framework` | (230, 315) | 2 | Forklift leaving the rack |
+| `b1` | Broker 1 (leader `orders-0`) | `container` | (480, 300) | 2 | Server tower with crown tag |
+| `b2` | Broker 2 | `container` | (620, 220) | 2 | Server tower |
+| `b3` | Broker 3 | `container` | (620, 380) | 2 | Server tower |
+| `c1` | Consumer A | `app` | (900, 250) | 2 | Laptop with worker figure |
+| `c2` | Consumer B | `app` | (900, 380) | 2 | Laptop with worker figure |
+| `pstate` | Producer state (on B1) | `framework` | (360, 450) | 3 · broker memory | Ledger card |
+| `pagecache` | OS page cache (on B1) | `container` | (480, 450) | 3 | Translucent RAM layer |
+| `cleaner` | Log cleaner (on B1) | `framework` | (600, 450) | 3 | Broom robot on a rail |
+| `txlog` | `__transaction_state` | `storage` | (240, 570) | 4 · disk | Cylinder with ledger icon |
+| `index` | `.index` | `storage` | (370, 570) | 4 | Index card strip |
+| `log` | `orders-0` log | `storage` | (480, 570) | 4 | Segment cylinders |
+| `offsets` | `__consumer_offsets` | `storage` | (760, 570) | 4 | Cylinder with bookmark ribbon |
+| `tool` | `kafka-consumer-groups.sh` | `client` | (900, 540) | 4 | Terminal window |
+
+Lesson-specific labels: in lesson 3 `log` is `users-0` (compacted); in lesson 7 `log` is `payments-0` and `c2` is "read_committed consumer".
+
+## Lessons
+
+| # | id | Title | Critical path (one line) | Steps |
+|---|---|---|---|---|
+| 1 | `producer-send` | 레코드 한 건의 전송 경로 | `send()` → partition → accumulator batch → Sender → Produce → leader log → `acks` response | 11 |
+| 2 | `broker-log` | 파티션 로그와 zero-copy | Produce → page cache → segment + sparse index → Fetch → index lookup → `sendfile` | 9 |
+| 3 | `log-compaction` | 키별 최신 값만 남는 로그 | keyed writes → dirty section → cleaner builds key→offset map → recopy without old values → full replay sees final state | 8 |
+| 4 | `replication` | ISR과 high watermark | leader append → follower Fetch → LEO → HW → `acks=all` response → consumer reads to HW | 10 |
+| 5 | `consumer-rebalance` | 파티션 재분배 | find coordinator → join → assign → member joins → revoke → reassign | 11 |
+| 6 | `offset-commit` | offset 커밋과 consumer lag | poll → process → `OffsetCommit` → `__consumer_offsets` → lag = end − committed | 9 |
+| 7 | `transactions` | 트랜잭션으로 exactly-once | init (fence) → produce in txn → offsets in txn → EndTxn → PREPARE → markers → LSO → `read_committed` read | 11 |
+| 8 | `kraft-failover` | 브로커 장애와 leader failover | heartbeats stop → controller fences broker → new leader from ISR → brokers apply → producer refreshes metadata and retries | 9 |
 
 ---
 
-## Lesson 1 · `producer-send`: 한 레코드가 브로커 로그에 닿기까지
+## Lesson 1 · `producer-send`
 
-### Goal
+- **Title:** 레코드 한 건의 전송 경로
+- **Subtitle:** `send()`부터 leader 로그와 `acks` 응답까지
+- **Summary:** 파티션 선택, batch 대기, 전송, `acks`, 중복 제거, 파티션 단위 순서 보장을 따라간다.
+- **Critical path:** `send()` → partition → accumulator batch → Sender → Produce → leader log → `acks` response.
+- **Overview:** `send()`는 비동기다. 애플리케이션 스레드는 직렬화, 파티션 선택, accumulator 적재까지만 하고 `Future`를 받는다. 전송은 `Sender` 스레드가 한다. 기본 설정은 `acks=all`, idempotence 켜짐, `linger.ms=5`다. 그래서 재시도해도 중복이 생기지 않고, 레코드는 잠깐 batch에 모인다. 순서는 파티션 안에서만 보장된다.
+- **Interview questions:** `linger.ms`와 `batch.size`는 무엇을 언제 보내게 하나? 키가 있을 때와 없을 때 파티션은? `acks=0/1/all`의 차이는? 재시도해도 중복이 없는 이유는? 무엇이 순서를 깨나?
 
-`producer.send()` 한 번이 직렬화, 파티션 선택, 배치, 네트워크 전송, `acks` 대기, 중복 제거를 거쳐 정확히 한 번 기록되는 경로를 따라간다.
+### Panels
 
-Interview questions it answers:
-- `linger.ms`와 `batch.size`는 각각 무엇을 언제 보내게 하나? 4.0에서 기본값이 어떻게 바뀌었나?
-- 키가 있는 레코드와 없는 레코드는 어떻게 파티션을 고르나?
-- `acks=0/1/all`의 차이와, `acks=all`이어도 데이터가 사라질 수 있는 경우는?
-- 재시도해도 중복이 안 생기는 이유는? `max.in.flight.requests.per.connection`이 5 이하여야 하는 이유는?
-
-### Nodes
-
-| id | Label | Kind | Illustration idea | Appears at |
-|---|---|---|---|---|
-| `app` | OrderService | `app` | Isometric laptop/service box with a small code-bracket glyph | S1 |
-| `serializer` | Serializer | `framework` | Funnel turning a curly-brace object into a byte strip | S2 |
-| `partitioner` | Partitioner | `framework` | Three-way rail switch with a hash `#` sign | S3 |
-| `accumulator` | RecordAccumulator | `framework` | Rack of per-partition trays (deques), each holding a filling batch crate | S4 |
-| `sender` | Sender thread | `framework` | Forklift / conveyor leaving the rack toward the network | S7 |
-| `broker1` | Broker 1 (leader p0) | `container` | Isometric server tower with a "leader" crown tag on partition p0 | S9 |
-| `log-p0` | orders-0 log | `storage` | Stacked segment cylinders inside the broker | S10 |
-| `pstate` | Producer state | `storage` | Small ledger card: `producerId`, epoch, last 5 sequence ranges | S12 |
-
-Node-state panels: `accumulator` (table: partition, open batch, bytes, records, age ms), `pstate` (table: producerId, epoch, cached batch seq ranges).
+| Node | Panel (initial) |
+|---|---|
+| `producer` | `record`: `key: "order-42"` / `value: {"id":42}` / `partition: ?` |
+| `accumulator` | `batches`: `orders-0: —` |
+| `sender` | `orders-0`: `producerId/epoch: 4000/0 (E.G.)` / `next sequence: 0` |
+| `log` | `orders-0`: `LEO: 1200 (E.G.)` / `last batch: —` |
+| `pstate` | `pid 4000`: `cached sequence ranges: []` |
 
 ### Steps
 
-**S1 · move · `app → serializer` · Client**
+**S1 · move · `producer → accumulator` path · Client** — *critical*
+- Token: `call` · `send(orders, key=order-42)`
 - Title: `send()` 호출
-- Subtitle: 애플리케이션 스레드가 `ProducerRecord`를 넘긴다.
-- Prose: `KafkaProducer.send()`는 먼저 interceptor의 `onSend`를 거친 뒤 `doSend`에 들어간다. `doSend`는 토픽 metadata를 기다리는데, 이 대기는 `max.block.ms` 안에서만 허용된다. 반환값은 `Future<RecordMetadata>`이고, 이 시점에는 아직 아무것도 전송되지 않았다.
-- Facts: `max.block.ms` = 60000; return type = `Future<RecordMetadata>`; `delivery.timeout.ms` = 120000 (send 후 성공/실패 보고 상한).
-- Event log: `OrderService → KafkaProducer · Client · send(orders, key=order-42) · 9 B value (E.G.)`
+- Subtitle: `Future`를 바로 돌려받는다. 아직 아무것도 전송되지 않았다.
+- Prose: 애플리케이션이 `ProducerRecord`를 넘기면 `send()`는 먼저 토픽 metadata를 기다린다. 이 대기와 버퍼 대기는 `max.block.ms`까지만 허용된다. 넘으면 `send()`가 예외를 던진다.
+- Facts: `max.block.ms` = 60000; return = `Future<RecordMetadata>`.
+- Event log: `OrderService → KafkaProducer · Client · send(orders, order-42) · —`
 - Sources: [P1], [P2]
 
-**S2 · mutate · `serializer` · Client**
-- Title: key/value 직렬화
-- Subtitle: 객체가 `byte[]`가 된다.
-- Prose: `key.serializer`와 `value.serializer`가 topic과 headers를 받아 `byte[]`를 만든다. 타입이 맞지 않으면 `ClassCastException`이 `SerializationException`으로 바뀌어 던져진다. 파티셔너는 직렬화된 키 바이트를 쓰므로 직렬화가 파티션 선택보다 먼저다.
-- Facts: order = metadata wait → serialize key → serialize value → partition; error = `SerializationException`; example key bytes = `6f 72 64 65 72 2d 34 32` (`order-42`, E.G.).
-- Event log: `KafkaProducer → Serializer · Client · serialize key+value · 8 B + 9 B (E.G.)`
-- State before → after: `key: "order-42" (String)` → `key: 8 bytes`; `value: Order{id=42}` → `value: 9 bytes {"id":42}`
-- Sources: [P2]
-
-**S3 · mutate · `partitioner` · Client**
-- Title: 파티션 선택
-- Subtitle: 키가 있으면 murmur2 해시, 없으면 sticky.
-- Prose: 레코드에 partition이 지정돼 있으면 그대로 쓰고, 커스텀 `partitioner.class`가 있으면 그것을 부른다. 아니면 키가 있을 때 `toPositive(murmur2(keyBytes)) % numPartitions`로 고른다. 키가 없으면 `UNKNOWN_PARTITION`을 넘기고, accumulator가 sticky 파티션을 고른다. sticky 파티션은 최소 `batch.size` 바이트를 보낸 뒤에 바뀐다.
-- Facts: key hash = `Utils.toPositive(Utils.murmur2(serializedKey)) % numPartitions`; no-key = sticky, switch after ≥ `batch.size` bytes (and always by 2×); `partitioner.adaptive.partitioning.enable` = true; `partitioner.ignore.keys` = false.
-- Event log: `KafkaProducer → Partitioner · Client · murmur2(order-42) % 3 → p0 (E.G.) · —`
-- State: `partition: ?` → `partition: 0 (E.G.)`
+**S2 · mutate · `producer` · Client** — *critical*
+- Title: 직렬화와 파티션 선택
+- Subtitle: 키가 있으면 키 해시, 없으면 sticky 파티션.
+- Prose: key와 value를 `byte[]`로 직렬화한 뒤 파티션을 고른다. 키가 있으면 `murmur2(keyBytes) % 파티션 수`로 정하므로, 같은 키는 같은 파티션으로 간다. 키가 없으면 한 파티션에 batch 하나 분량을 채운 뒤 다음 파티션으로 넘어간다(sticky).
+- Facts: key → `toPositive(murmur2(key)) % numPartitions`; no key → sticky, switch after ≥ `batch.size` bytes; explicit partition or custom `partitioner.class` wins.
+- Event log: `KafkaProducer · Client · murmur2(order-42) % 3 → 0 (E.G.) · —`
+- After: `key: 8 B "order-42"` / `value: 9 B {"id":42}` / `partition: 0 (E.G.)`
+- Decoder: **Record** (`wire: no`; the same bytes travel inside the batch at S7)
 - Sources: [P2], [P3], [P4]
 
-**S4 · move · `partitioner → accumulator` · Client**
+**S3 · move · `producer → accumulator` · Client** — *critical*
+- Token: `data` · `append orders-0`
 - Title: accumulator에 append
-- Subtitle: 파티션별 deque의 마지막 batch에 붙인다.
-- Prose: `RecordAccumulator.append`는 토픽-파티션마다 `ArrayDeque<ProducerBatch>`를 두고, 마지막 batch에 `tryAppend`를 시도한다. 자리가 없으면 `max(batch.size, 레코드 크기 상한)` 만큼 버퍼를 `BufferPool`에서 할당해 새 batch를 만든다. 전체 버퍼는 `buffer.memory`로 제한되고, 모자라면 `max.block.ms`까지 막힌다.
-- Facts: `batch.size` = 16384; `buffer.memory` = 33554432 (32 MiB); new batch size = `max(batch.size, estimateSizeInBytesUpperBound(...))`.
-- Event log: `Partitioner → RecordAccumulator · Client · append orders-0 · 24 B record (E.G.)`
+- Subtitle: 파티션별 대기열의 마지막 batch에 붙인다.
+- Prose: accumulator는 파티션마다 batch 대기열을 두고, 마지막 batch에 레코드를 붙인다. 자리가 없으면 새 batch를 만든다. 버퍼 전체는 `buffer.memory`로 제한된다. 브로커가 느려 버퍼가 차면 `send()`가 블록되고, `max.block.ms`가 지나면 실패한다.
+- Facts: `batch.size` = 16384; `buffer.memory` = 33554432 (32 MiB); full buffer → `send()` blocks up to `max.block.ms`.
+- Event log: `KafkaProducer → RecordAccumulator · Client · append orders-0 · 24 B (E.G.)`
 - Sources: [P1], [P5]
 
-**S5 · mutate · `accumulator` · Client**
-- Title: batch가 차오른다
-- Subtitle: 같은 파티션 레코드가 한 batch에 모인다.
-- Prose: 새 batch가 생기거나 batch가 가득 차면 `send()`가 `sender.wakeup()`을 호출한다. 그 외에는 레코드가 조용히 쌓인다. batch 하나가 나중에 record batch v2 하나가 된다.
-- Facts: wakeup condition = `batchIsFull || newBatchCreated`; one `ProducerBatch` = one record batch on the wire; records larger than `batch.size` = own batch ("No attempt will be made to batch records larger than this size").
-- Event log: `RecordAccumulator · Client · orders-0 batch 3 records, 1.2 KiB (E.G.) · —`
-- State: `orders-0 | open batch: 1 rec, 85 B, age 0 ms` → `orders-0 | open batch: 3 rec, 1.2 KiB, age 4 ms (E.G.)`
-- Sources: [P2], [P6]
+**S4 · mutate · `accumulator` · Client** — *critical*
+- Title: `batch.size` 또는 `linger.ms`
+- Subtitle: batch가 차거나 `linger.ms`가 지나면 보낼 수 있다.
+- Prose: batch는 `batch.size`만큼 차거나, `linger.ms`만큼 기다렸으면 보낼 준비가 된다. 기본 `linger.ms`는 5 ms다. 값을 올리면 batch가 커져 처리량이 늘고, 그만큼 지연이 생긴다.
+- Facts: `linger.ms` = 5; sendable = full ∥ linger expired ∥ buffer exhausted ∥ flush/close.
+- Event log: `RecordAccumulator · Client · orders-0 ready (linger expired) · 5 ms (E.G.)`
+- After: `orders-0: 1 batch · 3 records · 1.2 KiB · ready ✓ (E.G.)`
+- Sources: [P6], [P7], [P8]
 
-**S6 · mutate · `accumulator` · Client**
-- Title: `linger.ms` 만료 또는 batch full
-- Subtitle: 둘 중 먼저 오는 조건이 batch를 sendable로 만든다.
-- Prose: `ready()`는 파티션 leader 노드별로 보낼 batch가 있는지 본다. batch가 full이거나, `linger.ms`만큼 기다렸거나, 버퍼 풀이 고갈됐거나, flush/close 중이면 sendable이다. 4.0부터 `linger.ms` 기본값은 0이 아니라 5다. 문서는 큰 batch의 효율 덕에 지연이 비슷하거나 더 낮다고 설명한다.
-- Facts: `linger.ms` = 5 (changed from 0 in 4.0); sendable = `full || expired || exhausted || closed || flushInProgress || transactionCompleting`; broker backpressure can make the effective linger longer.
-- Event log: `RecordAccumulator · Client · orders-0 ready (linger 5 ms expired) · 5 ms`
-- State: `orders-0 | age 4 ms | ready=no` → `orders-0 | age 5 ms | ready=yes`
-- Sources: [P6], [P7]
+**S5 · move · `accumulator → sender` · Client** — *critical*
+- Token: `data` · `drain node 1: [orders-0]`
+- Title: Sender가 batch를 꺼낸다
+- Subtitle: leader broker별로 batch를 모아 요청 하나를 만든다.
+- Prose: `Sender` 스레드는 준비된 batch를 leader broker별로 모은다. 요청 하나에는 파티션마다 batch 하나씩 들어가고, 크기 상한은 `max.request.size`다.
+- Facts: one batch per partition per request; `max.request.size` = 1048576.
+- Event log: `RecordAccumulator → Sender · Client · drain node 1 · 1 batch (E.G.)`
+- Sources: [P9]
 
-**S7 · move · `accumulator → sender` · Client**
-- Title: Sender가 drain한다
-- Subtitle: leader 노드별로 batch를 모아 요청 하나로 만든다.
-- Prose: 별도 I/O 스레드인 `Sender`가 `accumulator.ready()`로 준비된 노드를 구하고, `drain()`으로 노드별 batch 목록을 꺼낸다. 요청 하나에는 파티션마다 batch 하나씩 들어가고, 크기는 `max.request.size`까지다. 순서 보장이 필요하면 drain한 파티션을 mute한다.
-- Facts: `max.request.size` = 1048576; one request = one batch per partition for that leader; partition mute when `guaranteeMessageOrder`.
-- Event log: `RecordAccumulator → Sender · Client · drain node 1: [orders-0, orders-2] (E.G.) · 2 batches`
-- Sources: [P8], [P6]
+**S6 · mutate · `sender` · Client** — *critical*
+- Title: producerId와 sequence
+- Subtitle: idempotent producer는 batch마다 `(producerId, epoch, baseSequence)`를 찍는다.
+- Prose: idempotent producer는 처음에 브로커에서 producerId를 받는다. batch를 꺼낼 때 파티션별 다음 sequence를 찍고 레코드 수만큼 올린다. 재시도하는 batch는 처음 받은 sequence를 그대로 쓴다. 그래서 브로커가 중복을 알아볼 수 있다.
+- Facts: `enable.idempotence` = true (default unless configs conflict); sequence assigned at drain; retried batch keeps its sequence.
+- Event log: `Sender · Client · orders-0 pid=4000 baseSeq=0 (E.G.) · —`
+- After: `producerId/epoch: 4000/0 (E.G.)` / `next sequence: 3`
+- Sources: [P10], [P11]
 
-**S8 · mutate · `sender` · Client**
-- Title: producerId와 sequence 부여
-- Subtitle: sequence는 append 때가 아니라 drain 때 batch에 찍힌다.
-- Prose: idempotence가 켜져 있으면 producer는 처음에 `InitProducerId`로 `producerId`와 epoch를 받는다. transactional이 아니면 이 요청은 least-loaded broker로 간다. drain 시점에 아직 sequence가 없는 batch에 `(producerId, epoch, baseSequence)`를 찍고, 파티션의 다음 sequence를 레코드 수만큼 올린다. 재시도 batch는 이미 받은 sequence를 그대로 유지한다.
-- Facts: `enable.idempotence` = true (default, if no conflicting configs); `InitProducerId` API key = 22; sequence assigned in `drain()` via `setProducerState`; retried batch keeps its sequence ("may introduce duplicates" otherwise).
-- Event log: `Sender · Client · batch orders-0 pid=4000 epoch=0 baseSeq=0 (E.G.) · —`
-- State: `batch: pid=-1 epoch=-1 baseSeq=-1` → `batch: pid=4000 epoch=0 baseSeq=0 (E.G.)`
-- Sources: [P9], [P10], [P11]
+**S7 · move · `sender → b1` · Network** — *critical*
+- Token: `request` · `Produce acks=all orders-0`
+- Title: Produce 요청
+- Subtitle: 파티션의 leader에게 직접 보낸다.
+- Prose: producer는 metadata로 각 파티션의 leader를 알고, 그 broker에 직접 Produce를 보낸다. 중간 라우팅 계층은 없다. 요청에는 `acks`와 `request.timeout.ms`가 실린다.
+- Facts: sent to the partition leader; `request.timeout.ms` = 30000.
+- Event log: `Sender → Broker 1 · Network · Produce acks=all orders-0 · 143 B (E.G.)`
+- Decoder: **ProduceRequest** (`wire: yes`)
+- Sources: [P12], [P13]
 
-**S9 · move · `sender → broker1` · Network**
-- Title: Produce 요청 전송
-- Subtitle: `ProduceRequest` v13: `Acks`, `TimeoutMs`, TopicId별 record batch.
-- Prose: Sender는 batch들을 `ProduceRequest`(API key 0)로 묶어 각 파티션의 leader에게 직접 보낸다. 중간 라우팅 계층은 없다. `TimeoutMs`에는 `request.timeout.ms`가 들어간다. 4.4.0의 Produce 버전 범위는 3–13이고, v13부터 토픽 이름 대신 TopicId(UUID)를 쓴다.
-- Facts: API key = 0; valid versions = 3–13 (flexible 9+); `Acks` int16: 0, 1, -1; `request.timeout.ms` = 30000.
-- Event log: `Sender → Broker 1 · Network · Produce v13 acks=-1 orders-0 · 143 B (E.G., 1 record)`
-- Decoder: **ProduceRequest v13 with RequestHeader v2** (see Decoder records)
-- Sources: [P12], [P13], [P14], [P8]
+**S8 · mutate · `log` · Storage** — *critical*
+- Title: leader 로그에 append
+- Subtitle: leader가 offset을 매기고 로그 끝에 쓴다.
+- Prose: leader는 batch를 검증하고, offset을 매겨 활성 segment 끝에 쓴다. batch는 producer가 만든 형식 그대로 저장된다(lesson 2).
+- Facts: broker assigns `baseOffset`; batch stored as sent (record batch v2); compressed batches stay compressed.
+- Event log: `Broker 1 → orders-0 · Storage · append at 1200 (E.G.) · 85 B (E.G.)`
+- After: `LEO: 1203 (E.G.)` / `last batch: 1200–1202 · pid 4000 · seq 0–2 (E.G.)`
+- Decoder: **Record batch** (`wire: no`, on disk)
+- Sources: [P14], [P15]
 
-**S10 · mutate · `log-p0` · Storage**
-- Title: leader가 로그에 append
-- Subtitle: 브로커가 offset을 매기고 활성 segment 끝에 쓴다.
-- Prose: leader는 batch의 CRC와 레코드 수를 검증하고, 압축된 batch도 검증을 위해 풀어 본다. 그런 다음 `baseOffset`과 `partitionLeaderEpoch`를 채워 활성 segment 끝에 쓴다. `partitionLeaderEpoch`는 CRC 범위 밖이라 브로커가 바꿔도 CRC를 다시 계산하지 않는다.
-- Facts: CRC = CRC-32C, covers `attributes`…end; `partitionLeaderEpoch` excluded from CRC; client sends `baseOffset=0`, `partitionLeaderEpoch=-1`.
-- Event log: `Broker 1 → orders-0 log · Storage · append offset 1200 (E.G.) · 85 B`
-- State: `LEO 1200` → `LEO 1201 (E.G.)`
-- Sources: [P15], [P16], [P17]
+**S9 · mutate · `pstate` · Broker** — *side*
+- Title: 중복 batch 걸러 내기
+- Subtitle: broker는 producer마다 최근 5개 batch의 sequence 범위를 기억한다.
+- Prose: 같은 sequence 범위의 batch가 다시 오면(응답을 못 받은 재시도), broker는 다시 쓰지 않고 앞서 쓴 결과를 돌려준다. sequence가 비면 `OutOfOrderSequenceException`이다. broker가 batch 5개만 기억하므로 idempotence에는 `max.in.flight.requests.per.connection` ≤ 5가 필요하다.
+- Facts: broker retains 5 batches per producer; duplicate → previous result, no append; `max.in.flight.requests.per.connection` = 5 (must be ≤ 5).
+- Event log: `Broker 1 · Broker · pid 4000 seq 0–2 accepted (E.G.) · —`
+- After: `cached sequence ranges: [0–2] (E.G.)`
+- Sources: [P16], [P17], [P18]
 
-**S11 · mutate · `pstate` · Broker**
-- Title: sequence 검사와 중복 제거
-- Subtitle: 브로커는 producer마다 마지막 5개 batch의 sequence 범위를 기억한다.
-- Prose: append 전에 브로커는 같은 epoch의 캐시된 batch 중 `baseSequence`/`lastSequence`가 정확히 같은 것이 있는지 찾는다. 있으면 다시 쓰지 않고 그 batch의 metadata를 돌려준다. 없으면 `firstSeq == lastSeq + 1`인지 확인하고, 아니면 `OutOfOrderSequenceException`이다. 캐시가 5개뿐이라 `max.in.flight.requests.per.connection`은 5 이하여야 한다.
-- Facts: `NUM_BATCHES_TO_RETAIN` = 5; `max.in.flight.requests.per.connection` = 5 (≤ 5 required with idempotence); in-sequence = `next == last + 1` (or wrap `Integer.MAX_VALUE → 0`); duplicate → return cached metadata, no append.
-- Event log: `Broker 1 · Broker · pid 4000 seq 0..2 accepted (E.G.) · —`
-- State: `pid 4000 epoch 0 | cached: []` → `pid 4000 epoch 0 | cached: [0..2] (E.G.)`
-- Sources: [P18], [P19], [P20], [P10]
-
-**S12 · move · `broker1 → sender` · Network**
+**S10 · move · `b1 → sender` · Network** — *critical*
+- Token: `response` · `ProduceResponse baseOffset=1200`
 - Title: `acks`에 따른 응답
-- Subtitle: `acks=all`이면 ISR 전체가 받을 때까지 응답을 미룬다.
-- Prose: `acks=0`이면 응답을 기다리지 않고, offset은 항상 -1이다. `acks=1`이면 leader의 로컬 쓰기 후 바로 응답한다. leader가 복제 전에 죽으면 그 레코드는 사라진다. `acks=all`(-1)이면 현재 ISR 전체가 받은 뒤 응답하고, 이것이 기본값이다. 복제 세부 사항은 lesson 3에서 다룬다.
-- Facts: `acks` = `all` (default); `acks=0` → `retries` has no effect, offset = -1; `acks=all` ≡ `acks=-1`; idempotence requires `acks=all`.
-- Event log: `Broker 1 → Sender · Network · ProduceResponse orders-0 baseOffset=1200 (E.G.) · 3 ms (E.G.)`
-- Sources: [P21], [P22]
+- Subtitle: `acks=all`이면 ISR 전원이 받은 뒤 응답한다.
+- Prose: `acks=0`은 응답을 기다리지 않는다. `acks=1`은 leader가 쓴 직후 응답하므로, leader가 복제 전에 죽으면 레코드가 사라진다. 기본값 `acks=all`은 현재 ISR 전원이 받은 뒤 응답한다(lesson 4). 재시도할 수 있는 오류는 `delivery.timeout.ms` 안에서 다시 보낸다.
+- Facts: `acks` = `all` (≡ -1); `acks=1` loses data if the leader dies before replication; `delivery.timeout.ms` = 120000.
+- Event log: `Broker 1 → Sender · Network · ProduceResponse baseOffset=1200 (E.G.) · 3 ms (E.G.)`
+- Sources: [P19], [P1]
 
-**S13 · move · `sender → app` · Client**
-- Title: 콜백 완료
-- Subtitle: `RecordMetadata`(topic, partition, offset)가 Future를 완성한다.
-- Prose: 응답이 오면 batch의 Future와 사용자 Callback이 완료되고, interceptor의 `onAcknowledgement`가 불린다. 재시도할 수 있는 오류는 `delivery.timeout.ms` 안에서 `retry.backoff.ms`(지수 증가, 최대 `retry.backoff.max.ms`)로 다시 보낸다. 이때 sequence는 바뀌지 않는다.
-- Facts: `retries` = 2147483647; `retry.backoff.ms` = 100; `retry.backoff.max.ms` = 1000; `delivery.timeout.ms` ≥ `linger.ms + request.timeout.ms` is enforced.
-- Event log: `Sender → OrderService · Client · callback orders-0@1200 (E.G.) · 9 ms end-to-end (E.G.)`
-- Sources: [P1], [P23], [P24]
+**S11 · mutate · `log` · Storage** — *side*
+- Title: 순서는 파티션 안에서만
+- Subtitle: idempotence 없이 재시도하면 같은 파티션 안에서도 순서가 뒤집힐 수 있다.
+- Prose: Kafka는 파티션 하나 안의 순서만 보장하고, 파티션 사이에는 순서가 없다. idempotence를 끄고 in-flight 요청이 2개 이상일 때 batch A가 실패하고 B가 성공한 뒤 A가 재전송되면, 로그에는 B가 먼저 남는다. 파티션 수를 늘려도 같은 키가 다른 파티션으로 가서 순서가 깨진다.
+- Facts: order = per partition only; idempotence off + in-flight > 1 + retry → reorder; adding partitions remaps keys.
+- Event log: `Broker 1 · Storage · (idempotence off) B written before retried A (E.G.) · —`
+- Before: `LEO: 1200 (E.G.)` / `last batch: —`
+- After: `LEO: 1206 (E.G.)` / `last batch: 1203–1205 · A (retry) · after 1200–1202 · B ✗ order (E.G.)`
+- Sources: [P20], [P18], [P21]
 
-### Decoder records
+**Replay:** `send()` → partition → accumulator → batch ready → Sender → Produce → leader log → `acks` response.
 
-1. **Record batch v2 (on disk / in Produce)**: see "Decoder: record batch v2" below. Used at S9 and S10.
-2. **Record (inside the batch)**: see "Decoder: record". Used at S2 and S10.
-3. **ProduceRequest v13 + RequestHeader v2**: see "Decoder: ProduceRequest". Used at S9.
+### Decoder records used
+
+| Record | Step | wire |
+|---|---|---|
+| Record | S2 | no |
+| ProduceRequest | S7 | yes |
+| Record batch | S8 | no |
 
 ### Sources
 
 | id | What | URL |
 |---|---|---|
-| P1 | Producer config defaults (`buffer.memory`, `retries`, `acks`, `batch.size`, `linger.ms`, `delivery.timeout.ms`, `max.block.ms`, `request.timeout.ms`) | `K/clients/src/main/java/org/apache/kafka/clients/producer/ProducerConfig.java#L420-L491` |
-| P2 | `KafkaProducer.doSend` (metadata, serialize, partition, append, wakeup) | `K/clients/src/main/java/org/apache/kafka/clients/producer/KafkaProducer.java#L1042-L1126` |
+| P1 | Producer config defaults | `K/clients/src/main/java/org/apache/kafka/clients/producer/ProducerConfig.java#L420-L491` |
+| P2 | `KafkaProducer.send`/`doSend` | `K/clients/src/main/java/org/apache/kafka/clients/producer/KafkaProducer.java#L1042-L1126` |
 | P3 | `KafkaProducer.partition` | `K/clients/src/main/java/org/apache/kafka/clients/producer/KafkaProducer.java#L1556-L1575` |
-| P4 | `BuiltInPartitioner` key hash and sticky switch | `K/clients/src/main/java/org/apache/kafka/clients/producer/internals/BuiltInPartitioner.java#L221-L256` and `#L411-L413`; `partitioner.class` doc `K/clients/src/main/java/org/apache/kafka/clients/producer/ProducerConfig.java#L343-L360`; partitioner defaults `#L441-L444` |
+| P4 | Built-in partitioner; `partitioner.class` doc | `K/clients/src/main/java/org/apache/kafka/clients/producer/internals/BuiltInPartitioner.java#L221-L256`, `#L411-L413`; `K/clients/src/main/java/org/apache/kafka/clients/producer/ProducerConfig.java#L343-L360` |
 | P5 | `RecordAccumulator.append` | `K/clients/src/main/java/org/apache/kafka/clients/producer/internals/RecordAccumulator.java#L282-L340` |
-| P6 | `batch.size` doc | `K/clients/src/main/java/org/apache/kafka/clients/producer/ProducerConfig.java#L85-L103` |
-| P7 | `batchReady` / `ready()` conditions | `K/clients/src/main/java/org/apache/kafka/clients/producer/internals/RecordAccumulator.java#L653-L676` and `#L800-L816` |
-| P8 | `Sender.sendProducerData`, `sendProduceRequest` | `K/clients/src/main/java/org/apache/kafka/clients/producer/internals/Sender.java#L380-L425` and `#L890-L946` |
-| P9 | `enable.idempotence` doc and default | `K/clients/src/main/java/org/apache/kafka/clients/producer/ProducerConfig.java#L370-L378` and `#L574-L577` |
-| P10 | Sequence assigned in `drain()` | `K/clients/src/main/java/org/apache/kafka/clients/producer/internals/RecordAccumulator.java#L946-L975` |
-| P11 | Non-transactional `InitProducerId` goes to least-loaded node | `K/clients/src/main/java/org/apache/kafka/clients/producer/internals/TransactionManager.java#L1537-L1544`, `K/clients/src/main/java/org/apache/kafka/clients/producer/internals/Sender.java#L477-L483`; API key `K/clients/src/main/resources/common/message/InitProducerIdRequest.json#L17` |
-| P12 | `ProduceRequest` schema | `K/clients/src/main/resources/common/message/ProduceRequest.json#L16-L73` |
-| P13 | `RequestHeader` schema | `K/clients/src/main/resources/common/message/RequestHeader.json#L16-L44` |
-| P14 | Producer sends to leader directly | `K/docs/design/design.md#L123-L127` |
-| P15 | Record batch format, CRC rules | `K/docs/implementation/message-format.md#L31-L67` |
-| P16 | Broker decompresses to validate | `K/docs/design/design.md#L113-L119` |
-| P17 | Producer builds batches with base offset 0 and `NO_PARTITION_LEADER_EPOCH` (-1) | `K/clients/src/main/java/org/apache/kafka/clients/producer/internals/RecordAccumulator.java#L350`, `K/clients/src/main/java/org/apache/kafka/common/record/internal/MemoryRecords.java#L490-L494`, `K/clients/src/main/java/org/apache/kafka/common/record/internal/RecordBatch.java#L65` |
-| P18 | `ProducerStateEntry.NUM_BATCHES_TO_RETAIN`, `findDuplicateBatch` | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/ProducerStateEntry.java#L31-L35` and `#L128-L137` |
-| P19 | Duplicate check on append | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/UnifiedLog.java#L1411-L1421` |
-| P20 | `checkSequence`, `inSequence` | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/ProducerAppendInfo.java#L156-L198` |
-| P21 | `acks` doc | `K/clients/src/main/java/org/apache/kafka/clients/producer/ProducerConfig.java#L133-L150` |
-| P22 | `max.in.flight.requests.per.connection` doc and default | `K/clients/src/main/java/org/apache/kafka/clients/producer/ProducerConfig.java#L296-L305` and `#L520-L523` |
-| P23 | Retry backoff defaults | `K/clients/src/main/java/org/apache/kafka/clients/CommonClientConfigs.java#L110-L117` |
-| P24 | `delivery.timeout.ms` ≥ `linger.ms + request.timeout.ms` check | `K/clients/src/main/java/org/apache/kafka/clients/producer/KafkaProducer.java#L631-L641` |
+| P6 | `batch.size` and `linger.ms` docs | `K/clients/src/main/java/org/apache/kafka/clients/producer/ProducerConfig.java#L85-L103`, `#L154-L165` |
+| P7 | `batchReady` conditions | `K/clients/src/main/java/org/apache/kafka/clients/producer/internals/RecordAccumulator.java#L653-L676` |
+| P8 | `linger.ms` default 5 (upgrade note); secondary: KIP-1030 | `K/docs/getting-started/upgrade.md#L341`; `https://cwiki.apache.org/confluence/x/FAqpEQ` |
+| P9 | `Sender.sendProducerData` | `K/clients/src/main/java/org/apache/kafka/clients/producer/internals/Sender.java#L380-L425` |
+| P10 | `enable.idempotence` doc and default | `K/clients/src/main/java/org/apache/kafka/clients/producer/ProducerConfig.java#L370-L378`, `#L574-L577` |
+| P11 | Sequence assigned in `drain()` | `K/clients/src/main/java/org/apache/kafka/clients/producer/internals/RecordAccumulator.java#L946-L975` |
+| P12 | Producer sends to the leader directly | `K/docs/design/design.md#L123-L127` |
+| P13 | `ProduceRequest` and `RequestHeader` schemas | `K/clients/src/main/resources/common/message/ProduceRequest.json#L16-L73`, `K/clients/src/main/resources/common/message/RequestHeader.json#L16-L44` |
+| P14 | Record batch format | `K/docs/implementation/message-format.md#L31-L67` |
+| P15 | Broker validates, keeps compressed batches | `K/docs/design/design.md#L113-L119` |
+| P16 | Broker keeps 5 batches per producer | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/ProducerStateEntry.java#L31-L35`, `#L128-L137` |
+| P17 | Duplicate and sequence checks | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/UnifiedLog.java#L1411-L1421`, `K/storage/src/main/java/org/apache/kafka/storage/internals/log/ProducerAppendInfo.java#L156-L198` |
+| P18 | `max.in.flight.requests.per.connection` doc | `K/clients/src/main/java/org/apache/kafka/clients/producer/ProducerConfig.java#L296-L305`, `#L520-L523` |
+| P19 | `acks` doc | `K/clients/src/main/java/org/apache/kafka/clients/producer/ProducerConfig.java#L133-L150` |
+| P20 | Per-partition ordering | `K/docs/getting-started/introduction.md#L83` |
+| P21 | Adding partitions remaps keys | `K/docs/operations/basic-kafka-operations.md#L61-L63` |
 
 ### Self-check
 
-1. `linger.ms`의 4.4.0 기본값과, 기본값이 바뀐 버전은? → 5 ms, 4.0 (이전 0).
-2. `batch.size=16384`인데 20 KB 레코드 하나를 보내면? → 그 레코드만 담는 batch가 따로 만들어진다. 버퍼 크기는 `max(batch.size, 레코드 크기 상한)`이다.
-3. 키 없는 레코드는 어떤 파티션으로 가나? → sticky 파티션이다. 그 파티션에 최소 `batch.size` 바이트를 보낸 뒤에 바뀐다.
-4. sequence number는 언제 batch에 붙나? → `send()`가 아니라 Sender가 drain할 때다. 재시도 batch는 같은 sequence를 유지한다.
-5. 브로커가 같은 batch를 두 번 받으면? → 같은 epoch에 같은 sequence 범위가 캐시(최근 5개)에 있으면, 다시 쓰지 않고 기존 metadata를 응답한다.
-6. idempotence와 `max.in.flight.requests.per.connection=10`을 함께 명시하면? → `ConfigException`이 난다. idempotence를 명시하지 않았다면 idempotence가 꺼진다.
-7. `acks=1`에서 유실이 나는 시나리오는? → leader가 로컬에 쓰고 응답한 직후, follower가 복제하기 전에 죽는 경우다.
+1. `linger.ms`와 `batch.size`의 관계는? → 둘 중 먼저 오는 쪽이 batch를 보낼 수 있게 한다. 기본값은 5 ms와 16 KiB다.
+2. 키 없는 레코드는 어느 파티션으로 가나? → sticky 파티션이다. batch 하나 분량을 채운 뒤 다음 파티션으로 넘어간다.
+3. 브로커가 느려 버퍼가 차면? → `send()`가 블록되고, `max.block.ms`(60 s)가 지나면 예외가 난다.
+4. 재시도해도 중복이 없는 이유는? → batch의 `(producerId, sequence)`로 브로커가 최근 5개 batch와 비교해 중복을 버린다.
+5. `acks=1`에서 유실 시나리오는? → leader가 응답한 직후, follower가 복제하기 전에 죽는 경우.
+6. 순서가 깨지는 경우는? → idempotence를 끄고 in-flight > 1에서 재시도할 때, 파티션 수를 늘릴 때. 파티션 사이에는 원래 순서가 없다.
 
 ---
 
-## Lesson 2 · `broker-log`: 파티션은 디렉터리, 로그는 segment 파일
+## Lesson 2 · `broker-log`
 
-### Goal
+- **Title:** 파티션 로그와 zero-copy
+- **Subtitle:** 파티션은 디렉터리, 로그는 segment 파일
+- **Summary:** batch가 page cache를 거쳐 segment에 쌓이고, consumer fetch가 sparse index로 위치를 찾아 `sendfile`로 나가는 과정을 본다.
+- **Critical path:** Produce → page cache → segment + sparse index → Fetch → index lookup → `sendfile`.
+- **Overview:** Kafka가 디스크를 쓰면서도 빠른 이유는 순차 append, OS page cache, batch 단위 I/O, `sendfile` zero-copy다. 기본 설정에서 주기적 fsync는 꺼져 있고, 내구성은 복제로 얻는다(lesson 4). 브로커가 비정상 종료되면 시작할 때 마지막 segment를 CRC로 검사하고, 손상된 꼬리를 잘라 낸다. index는 다시 만든다.
+- **Interview questions:** Kafka는 왜 빠른가? offset으로 레코드를 어떻게 찾나? retention은 무엇 단위로 지우나? TLS를 켜면 zero-copy는? 매 쓰기마다 fsync하나?
 
-파티션 하나가 디스크에서 segment 파일과 sparse index로 어떻게 저장되고, consumer fetch가 page cache와 `sendfile`로 복사 없이 나가는지 본다.
+### Panels
 
-Interview questions it answers:
-- Kafka는 디스크를 쓰는데 왜 빠른가? (순차 I/O, page cache, batching, zero-copy)
-- offset으로 레코드를 어떻게 찾나? index는 왜 sparse인가?
-- segment는 언제 roll되고, retention은 무엇 단위로 지우나?
-- TLS를 켜면 zero-copy는 어떻게 되나?
-- Kafka는 매 쓰기마다 fsync하나?
-
-### Nodes
-
-| id | Label | Kind | Illustration idea | Appears at |
-|---|---|---|---|---|
-| `producer` | Producer | `client` | Small laptop with an outgoing crate | S1 |
-| `broker` | Broker 1 | `container` | Isometric server tower, open side panel | S1 |
-| `pagecache` | OS page cache | `container` | Translucent RAM-stick layer drawn over the disk | S3 |
-| `segdir` | `orders-0/` | `storage` | Isometric folder with files fanned out: `.log`, `.index`, `.timeindex`, `.snapshot`, `leader-epoch-checkpoint` | S2 |
-| `active` | active segment | `storage` | Open cylinder still filling | S2 |
-| `oldseg` | closed segments | `storage` | Sealed cylinders | S6 |
-| `offidx` | `.index` | `storage` | Index card strip with sparse ticks | S4 |
-| `nic` | NIC / socket | `container` | Network card with a cable to the consumer | S9 |
-| `consumer` | Consumer | `client` | Laptop with an inbound crate | S8 |
-
-Node-state panels: `segdir` (list of files), `offidx` (table: relative offset, position), `pagecache` (list: cached pages / dirty pages).
+| Node | Panel (initial) |
+|---|---|
+| `log` | `orders-0/`: `00000000000000000000.log (+ .index, .timeindex)` |
+| `pagecache` | `cache`: `dirty: 0 B` / `cached: 0 B` |
+| `index` | `active .index`: `(0 → 0)` / `last lookup: —` |
 
 ### Steps
 
-**S1 · move · `producer → broker` · Network**
+**S1 · move · `producer → b1` · Network** — *critical*
+- Token: `request` · `Produce orders-0 (16 KiB)`
 - Title: batch가 브로커에 도착
 - Subtitle: producer, broker, consumer가 같은 바이너리 형식을 쓴다.
-- Prose: Kafka는 producer, broker, consumer가 공유하는 표준 바이너리 형식을 쓴다. 그래서 브로커는 받은 batch를 변환하지 않고 그대로 파일에 붙이고, 나중에 그대로 내보낼 수 있다. 이것이 byte copy를 피하는 첫 번째 전제다.
-- Facts: shared format = record batch v2 (magic 2); batching amortizes network round trips; protocol is built around a "message set" (batch) abstraction.
+- Prose: producer, broker, consumer가 한 가지 바이너리 형식을 쓰므로, 브로커는 받은 batch를 변환하지 않고 파일에 붙인다. 나중에도 그대로 내보낸다. 요청 하나에 메시지 여러 개가 실리므로 네트워크 왕복 비용이 나뉜다.
+- Facts: one shared format (record batch v2); batching amortizes round trips.
 - Event log: `Producer → Broker 1 · Network · Produce orders-0 · 16 KiB (E.G.)`
 - Sources: [L1]
 
-**S2 · mutate · `segdir` · Storage**
-- Title: 파티션 = 디렉터리
-- Subtitle: `<topic>-<partition>/` 안에 segment 파일 묶음이 있다.
-- Prose: 토픽 `orders`의 파티션 0은 `orders-0` 디렉터리다. segment 파일 이름은 그 segment의 첫 offset을 20자리로 0을 채운 값이다. `.log`는 데이터, `.index`는 offset index, `.timeindex`는 time index, `.txnindex`는 aborted transaction index, `.snapshot`은 producer state snapshot이다.
-- Facts: file name = 20-digit zero-padded base offset (`00000000000000000000.log`); suffixes = `.log`, `.index`, `.timeindex`, `.txnindex`, `.snapshot`; `log.dir` default `/tmp/kafka-logs`.
-- Event log: `Broker 1 · Storage · open orders-0/00000000000000001024.log (E.G.) · —`
-- State: list `[]` → `[00000000000000000000.log/.index/.timeindex, 00000000000000001024.log/.index/.timeindex (E.G.)]`
-- Sources: [L2], [L3], [L4]
+**S2 · mutate · `pagecache` · Storage** — *critical*
+- Title: page cache에 쓰기
+- Subtitle: 로그에 쓴다는 것은 커널 page cache로 넘긴다는 뜻이다. fsync는 하지 않는다.
+- Prose: 브로커는 받은 데이터를 바로 로그 파일에 쓰지만, 디스크로 flush하지는 않는다. 커널 page cache로 넘어갈 뿐이다. JVM 힙 캐시를 두지 않고 page cache에 기대므로 GC 부담이 없다. 브로커를 재시작해도 page cache는 그대로 남는다.
+- Facts: `log.flush.interval.messages` = Long.MAX (no forced flush); durability comes from replication; cache survives broker restart.
+- Event log: `Broker 1 → page cache · Storage · write() · 16 KiB (E.G.)`
+- After: `dirty: 16 KiB (E.G.)` / `cached: 16 KiB (E.G.)`
+- Sources: [L2], [L3]
 
-**S3 · mutate · `pagecache` · Storage**
-- Title: page cache에 쓰기 (fsync 없음)
-- Subtitle: 로그에 쓰는 것은 곧 커널 page cache에 넘기는 것이다.
-- Prose: 모든 데이터는 곧바로 파일시스템의 로그에 쓰이지만, 디스크로 flush되지는 않는다. 즉 커널 page cache로 넘어갈 뿐이다. JVM 힙에 캐시를 두면 객체 오버헤드와 GC 비용이 들고 OS 캐시와 이중 저장이 된다. 그래서 Kafka는 page cache에 기댄다. 내구성은 fsync가 아니라 복제로 얻는다(lesson 3).
-- Facts: `log.flush.interval.messages` = 9223372036854775807 (Long.MAX); `log.flush.scheduler.interval.ms` = Long.MAX; design doc: "32GB machine → 28-30GB cache without GC penalties".
-- Event log: `Broker 1 → page cache · Storage · write() 16 KiB (dirty) · <1 ms (E.G.)`
-- State: `dirty pages: 0` → `dirty pages: 4 (16 KiB, E.G.)`
-- Sources: [L5], [L6]
+**S3 · mutate · `log` · Storage** — *critical*
+- Title: 파티션 = 디렉터리, segment = 파일
+- Subtitle: 활성 segment 끝에만 append한다.
+- Prose: 파티션 `orders-0`은 디렉터리 하나다. 그 안에 segment마다 `.log`(데이터), `.index`(offset index), `.timeindex`(time index) 파일이 있다. 파일 이름은 그 segment의 첫 offset이다. append는 마지막 활성 segment에만 한다.
+- Facts: file name = first offset, 20 digits; per segment `.log` + `.index` + `.timeindex`; appends go to the active segment only.
+- Event log: `Broker 1 · Storage · append to 00000000000000001024.log (E.G.) · —`
+- After: `00000000000000000000.log (+ .index, .timeindex)` / `00000000000000001024.log (+ .index, .timeindex) · active (E.G.)`
+- Sources: [L4], [L5]
 
-**S4 · mutate · `offidx` · Storage**
+**S4 · mutate · `index` · Storage** — *critical*
 - Title: sparse offset index
-- Subtitle: 4096바이트마다 한 entry(relative offset → file position).
-- Prose: 마지막 index entry 이후 쓴 바이트가 `log.index.interval.bytes`를 넘으면, batch의 마지막 offset과 그 batch의 파일 위치를 `.index`에 추가한다. 같은 때 `.timeindex`에도 지금까지의 최대 timestamp를 남긴다. entry는 base offset 기준 상대 offset 4바이트와 위치 4바이트, 합쳐 8바이트다. 파일은 mmap되고 미리 할당된다.
-- Facts: `log.index.interval.bytes` = 4096; offset index entry = 8 B (int32 relativeOffset + int32 position); time index entry = 12 B (int64 timestamp + int32 relativeOffset); `log.index.size.max.bytes` = 10485760.
-- Event log: `Broker 1 → .index · Storage · append (rel 37 → pos 4182) (E.G.) · 8 B`
-- State: table `[(0,0)]` → `[(0,0), (37,4182) (E.G.)]`
-- Decoder: **offset index entry** (see Decoder records)
-- Sources: [L7], [L8], [L9], [L4]
+- Subtitle: 약 4 KiB마다 entry 하나: offset → 파일 위치.
+- Prose: 레코드마다 index를 남기지 않는다. 마지막 entry 이후 쓴 바이트가 `log.index.interval.bytes`를 넘으면 그때 entry를 하나 추가한다. 그래서 index가 작아 mmap으로 메모리에 둘 수 있다.
+- Facts: `log.index.interval.bytes` = 4096; entry = offset (relative) → file position; index is memory-mapped.
+- Event log: `Broker 1 → .index · Storage · add (1061 → 4182) (E.G.) · 8 B`
+- After: `(0 → 0)` / `(1061 → 4182) (E.G.)` / `last lookup: —`
+- Sources: [L6], [L7]
 
-**S5 · mutate · `active` · Storage**
+**S5 · mutate · `log` · Storage** — *side*
 - Title: segment roll
-- Subtitle: 1 GiB, 7일, index 가득, 상대 offset 초과 중 하나면 새 segment.
-- Prose: 활성 segment에만 append한다. 다음 append로 `segment.bytes`를 넘거나, segment가 `segment.ms`(지터 적용)만큼 오래됐거나, offset/time index가 가득 찼거나, offset을 4바이트 상대값으로 못 담으면 roll한다. 닫힌 segment의 index는 read-only로 바뀌고 남는 공간은 잘려 나간다.
-- Facts: `log.segment.bytes` = 1073741824 (1 GiB); `log.roll.hours` = 168; roll triggers = size, time, index full, relative-offset overflow.
+- Subtitle: 1 GiB가 차거나 7일이 지나면 새 segment를 연다.
+- Prose: 활성 segment가 `segment.bytes`(1 GiB)를 넘거나 `segment.ms`(7일)만큼 오래되면, 닫고 새 segment를 연다. 닫힌 segment는 더 바뀌지 않는다. retention과 compaction은 닫힌 segment만 대상으로 한다.
+- Facts: `log.segment.bytes` = 1073741824; `log.roll.hours` = 168; only closed segments are deleted or compacted.
 - Event log: `Broker 1 · Storage · roll → 00000000000000052113.log (E.G.) · —`
-- State: `active: …01024.log 1.0 GiB` → `active: …52113.log 0 B; closed: …01024.log (E.G.)`
-- Sources: [L10], [L11]
+- After: `00000000000000000000.log (+ index)` / `00000000000000001024.log (+ index) · closed (E.G.)` / `00000000000000052113.log (+ index) · active (E.G.)`
+- Sources: [L8], [L9]
 
-**S6 · mutate · `oldseg` · Storage**
-- Title: retention은 segment 단위로 지운다
-- Subtitle: 시간 또는 크기 기준을 넘은 가장 오래된 segment 파일을 통째로 삭제한다.
-- Prose: 삭제는 한 번에 segment 하나씩이다. 시간 기준은 segment 안의 가장 큰 timestamp로 판단한다. 크기 기준은 기본으로 꺼져 있다. 지우는 동안에도 읽기를 막지 않도록 segment 목록은 copy-on-write로 관리한다.
-- Facts: `log.retention.hours` = 168; `log.retention.bytes` = -1 (off); `log.retention.check.interval.ms` = 300000; `log.segment.delete.delay.ms` = 60000.
-- Event log: `Broker 1 · Storage · delete …00000.log (.deleted) (E.G.) · —`
-- State: `[…00000, …01024, …52113]` → `[…01024, …52113]`
-- Sources: [L12], [L13]
+**S6 · mutate · `log` · Storage** — *side*
+- Title: retention은 segment 단위
+- Subtitle: 기준을 넘은 가장 오래된 segment를 통째로 지운다.
+- Prose: 삭제는 segment 하나씩 한다. 시간 기준은 segment 안 가장 큰 timestamp로 판단한다. 크기 기준(`retention.bytes`)은 기본으로 꺼져 있다. 그래서 활성 segment에 든 레코드나, 늦게 들어온 레코드가 있는 segment는 7일보다 오래 남을 수 있다. 디스크가 찰 때 먼저 볼 설정이다.
+- Facts: `log.retention.hours` = 168; `log.retention.bytes` = -1 (off); a segment is deleted when its newest record expires.
+- Event log: `Broker 1 · Storage · delete 00000000000000000000.* (E.G.) · —`
+- After: `00000000000000001024.log (+ index) · closed (E.G.)` / `00000000000000052113.log (+ index) · active (E.G.)`
+- Sources: [L10], [L9]
 
-**S7 · move · `consumer → broker` · Network**
-- Title: Fetch 요청 (long poll)
-- Subtitle: consumer는 offset을 주고 그 위치부터 chunk를 받아 간다(pull).
-- Prose: consumer는 자기 offset을 담아 Fetch를 보내고, 그 위치부터 로그 chunk를 받는다. 데이터가 없으면 `fetch.min.bytes`가 찰 때까지 최대 `fetch.max.wait.ms` 동안 브로커에서 기다린다(long poll). pull 방식이라 느린 consumer는 뒤처질 뿐 넘치지 않는다.
-- Facts: Fetch API key = 1, versions 4–18; `fetch.min.bytes` = 1; `fetch.max.wait.ms` = 500; `max.partition.fetch.bytes` = 1048576; `fetch.max.bytes` = 52428800.
-- Event log: `Consumer → Broker 1 · Network · Fetch orders-0 offset=1237 (E.G.) · ~90 B (E.G.)`
-- Decoder: **FetchRequest v18** (see Decoder records)
-- Sources: [L14], [L15], [L16]
+**S7 · move · `c1 → b1` · Network** — *critical*
+- Token: `request` · `Fetch orders-0 offset=1237`
+- Title: Fetch (long poll)
+- Subtitle: consumer가 offset을 주고 그 위치부터 당겨 간다.
+- Prose: consumer는 다음 offset을 담아 Fetch를 보낸다. 데이터가 없으면 브로커가 `fetch.min.bytes`가 찰 때까지 최대 `fetch.max.wait.ms` 동안 응답을 미룬다(long poll). pull 방식이라 느린 consumer는 뒤처질 뿐, 넘치지 않는다.
+- Facts: `fetch.min.bytes` = 1; `fetch.max.wait.ms` = 500; `max.partition.fetch.bytes` = 1048576.
+- Event log: `Consumer A → Broker 1 · Network · Fetch offset=1237 (E.G.) · ~90 B (E.G.)`
+- Decoder: **FetchRequest** (`wire: yes`, consumer column)
+- Sources: [L11], [L12], [L13]
 
-**S8 · mutate · `offidx` · Storage**
-- Title: offset → 파일 위치 찾기
-- Subtitle: segment는 base offset으로, 위치는 index binary search로 찾는다.
-- Prose: 먼저 base offset으로 target offset이 들어 있는 segment를 고른다. 그 segment의 mmap된 `.index`에서 target 이하인 가장 큰 entry를 binary search로 찾는다. 그 위치부터 `.log`를 앞으로 훑어 target을 포함한 batch를 찾는다. index가 sparse라서 최대 약 4 KiB만 훑으면 된다.
-- Facts: lookup = "greatest offset ≤ target"; empty index → `(baseOffset, 0)`; scan distance ≤ ~`log.index.interval.bytes`.
-- Event log: `Broker 1 · Storage · lookup 1237 → seg …01024, pos 4182 (E.G.) · <1 ms (E.G.)`
-- State: highlight row `(37, 4182)` in index table (E.G.)
-- Sources: [L8], [L17], [L18]
+**S8 · mutate · `index` · Storage** — *critical*
+- Title: offset → 파일 위치
+- Subtitle: segment를 고르고, index를 binary search하고, 조금 훑는다.
+- Prose: 먼저 base offset으로 1237이 든 segment를 고른다. 그 segment의 `.index`에서 1237 이하 가장 큰 entry를 binary search로 찾는다. 그 위치부터 `.log`를 앞으로 훑는다. index가 sparse라 훑는 거리는 약 4 KiB 이내다.
+- Facts: lookup = greatest indexed offset ≤ target; scan ≤ ~`log.index.interval.bytes`.
+- Event log: `Broker 1 · Storage · lookup 1237 → pos 4182 (E.G.) · <1 ms (E.G.)`
+- After: `(0 → 0)` / `(1061 → 4182) (E.G.)` / `last lookup: 1237 → scan from 4182 (E.G.)`
+- Sources: [L7], [L14]
 
-**S9 · move · `pagecache → nic` · Storage**
+**S9 · move · `pagecache → c1` · Network** — *critical*
+- Token: `response` · `FetchResponse via sendfile`
 - Title: `sendfile` zero-copy
-- Subtitle: page cache에서 소켓으로, user space를 거치지 않고 바로.
-- Prose: 일반 경로는 디스크→page cache→user buffer→socket buffer→NIC로, 복사 네 번과 시스템 콜 두 번이다. Kafka는 `FileRecords.writeTo`에서 `FileChannel.transferTo`, 즉 Linux `sendfile`로 page cache에서 소켓으로 바로 보낸다. consumer가 거의 따라잡은 클러스터에서는 데이터가 page cache에서 나가므로 디스크 읽기가 거의 없다.
-- Facts: normal path = 4 copies + 2 system calls; zero-copy = `fileChannel.transferTo(position, count, socketChannel)`; data copied into page cache once, reused per consumer.
-- Event log: `page cache → NIC · Storage · sendfile 1 MiB (E.G.) · —`
-- Sources: [L19], [L20], [L21]
+- Subtitle: page cache에서 소켓으로 바로 간다. user space를 거치지 않는다.
+- Prose: 일반 경로는 page cache → 애플리케이션 버퍼 → 소켓 버퍼 → NIC로 복사가 여러 번 일어난다. Kafka는 `sendfile`(`FileChannel.transferTo`)로 page cache에서 소켓으로 바로 보낸다. 따라잡은 consumer는 page cache에서 읽으므로 디스크 읽기가 거의 없다. TLS를 켜면 user space에서 암호화해야 하므로 `sendfile`을 쓰지 않는다.
+- Facts: zero-copy = `fileChannel.transferTo(…, socketChannel)`; TLS listener → no `sendfile`; response carries `HighWatermark` and records (compressed stays compressed).
+- Event log: `Broker 1 → Consumer A · Network · FetchResponse HW=1300 (E.G.) · 1 MiB (E.G.)`
+- Sources: [L15], [L16], [L17]
 
-**S10 · mutate · `nic` · Network**
-- Title: TLS면 zero-copy 없음
-- Subtitle: SSL은 user space에서 암호화하므로 `sendfile`을 쓰지 않는다.
-- Prose: TLS 라이브러리는 user space에서 동작하고, Kafka는 커널 `SSL_sendfile`을 지원하지 않는다. 그래서 SSL이 켜지면 `sendfile`을 쓰지 않는다. `SslTransportLayer.transferFrom`은 파일을 32 KiB direct buffer로 읽어 `SSLEngine`으로 암호화한 뒤 쓴다.
-- Facts: `sendfile` disabled with SSL; in-kernel `SSL_sendfile` not supported; SSL read buffer = 32768 B direct buffer; relevant configs = `security.protocol`, `security.inter.broker.protocol`.
-- Event log: `Broker 1 · Network · TLS listener: read+encrypt+write path · —`
-- State: `path: sendfile` → `path: read → encrypt → write`
-- Sources: [L20], [L26]
+**Replay:** Produce → page cache → active segment + index entry → Fetch → index lookup → `sendfile` to the consumer.
 
-**S11 · move · `nic → consumer` · Network**
-- Title: Fetch 응답
-- Subtitle: 압축된 batch는 압축된 채로 consumer에게 간다.
-- Prose: 응답에는 파티션마다 `HighWatermark`, `LastStableOffset`, `LogStartOffset`과 record batch 바이트가 들어 있다. 압축은 batch 단위라서 batch가 로그에도 압축된 채 있고, 그대로 전송되며, consumer가 푼다. `read_uncommitted` consumer는 high watermark까지만 읽는다(lesson 3).
-- Facts: compression codecs = gzip(1), snappy(2), lz4(3), zstd(4) in attributes bits 0–2; consumer decompresses; consumer fetch isolation = `HIGH_WATERMARK` (read_uncommitted) or `TXN_COMMITTED` (read_committed).
-- Event log: `Broker 1 → Consumer · Network · FetchResponse orders-0 HW=1300 (E.G.) · 1 MiB (E.G.)`
-- Sources: [L22], [L23], [L1], [L24]
+### Decoder records used
 
-**S12 · mutate · `segdir` · Storage**
-- Title: crash 후 복구
-- Subtitle: 마지막 segment를 훑고 CRC로 검증해 잘라 낸다.
-- Prose: 시작할 때 log recovery가 가장 새 segment의 모든 엔트리를 훑어 크기와 CRC를 확인한다. 손상이 있으면 마지막 유효 offset까지 잘라 낸다. index에는 checksum이 없으므로 crash가 나면 index를 다시 만든다.
-- Facts: recovery checks size+offset < file length AND CRC; index files carry no checksum, rebuilt on crash; `num.recovery.threads.per.data.dir` = 2.
-- Event log: `Broker 1 · Storage · recover …52113.log truncate to 52190 (E.G.) · 120 ms (E.G.)`
-- State: `…52113.log 3.1 MiB (torn tail)` → `…52113.log 3.0 MiB (E.G.)`
-- Sources: [L25], [L8], [L13]
-
-### Decoder records
-
-1. **Record batch v2** (S1, S11): shared with lesson 1.
-2. **Offset index entry** (S4, S8): 8 bytes. See "Decoder: offset index entry".
-3. **FetchRequest v18 + RequestHeader v2** (S7). See "Decoder: FetchRequest".
+| Record | Step | wire |
+|---|---|---|
+| FetchRequest (consumer) | S7 | yes |
 
 ### Sources
 
 | id | What | URL |
 |---|---|---|
-| L1 | Efficiency: message set batching, shared binary format | `K/docs/design/design.md#L76-L92` |
-| L2 | Partition directory, file naming by first offset | `K/docs/implementation/log.md#L29` |
-| L3 | File suffixes | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/LogFileUtils.java#L27-L67`; 20-digit name `#L102-L108` |
-| L4 | `log.dir` default, index defaults | `K/server-common/src/main/java/org/apache/kafka/server/config/ServerLogConfigs.java#L50` and `#L93-L97` |
-| L5 | Page-cache-centric design | `K/docs/design/design.md#L53-L64` |
-| L6 | Flush defaults | `K/server-common/src/main/java/org/apache/kafka/server/config/ServerLogConfigs.java#L101-L113` |
-| L7 | Index append every `indexIntervalBytes` | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/LogSegment.java#L255-L279` |
-| L8 | `OffsetIndex` format and lookup | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/OffsetIndex.java#L30-L56` and `#L90-L106` |
-| L9 | `TimeIndex` format | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/TimeIndex.java#L30-L56` |
-| L10 | `shouldRoll` | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/LogSegment.java#L167-L173` |
-| L11 | Segment/retention defaults | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/LogConfig.java#L130-L138` and `#L160-L177` |
-| L12 | Deletes: one segment at a time, largest timestamp, copy-on-write | `K/docs/implementation/log.md#L70-L72` |
-| L13 | Retention, cleanup, delete-delay, recovery-thread defaults | `K/server-common/src/main/java/org/apache/kafka/server/config/ServerLogConfigs.java#L81-L105` and `#L147` |
-| L14 | Pull and long poll | `K/docs/design/design.md#L135-L145` |
-| L15 | `FetchRequest` schema | `K/clients/src/main/resources/common/message/FetchRequest.json#L16-L125` |
-| L16 | Consumer fetch defaults | `K/clients/src/main/java/org/apache/kafka/clients/consumer/ConsumerConfig.java#L212`, `#L225`, `#L235`, `#L250` |
-| L17 | Reads: locate segment, binary search | `K/docs/implementation/log.md#L41-L47` |
-| L18 | `translateOffset` | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/LogSegment.java#L375-L395` |
-| L19 | `FileRecords.writeTo` → `transferFrom` | `K/clients/src/main/java/org/apache/kafka/common/record/internal/FileRecords.java#L280-L291` |
-| L20 | sendfile path, 4 copies, SSL exception | `K/docs/design/design.md#L92-L111` |
-| L21 | `PlaintextTransportLayer.transferFrom` → `transferTo` | `K/clients/src/main/java/org/apache/kafka/common/network/PlaintextTransportLayer.java#L212-L215` |
-| L22 | `FetchResponse` partition fields | `K/clients/src/main/resources/common/message/FetchResponse.json#L73-L111` |
-| L23 | Compression attribute bits | `K/docs/implementation/message-format.md#L40-L47` |
-| L24 | `FetchIsolation` | `K/server-common/src/main/java/org/apache/kafka/server/storage/log/FetchIsolation.java#L22-L39` |
-| L25 | Log recovery guarantees | `K/docs/implementation/log.md#L74-L78` |
-| L26 | `SslTransportLayer.transferFrom` | `K/clients/src/main/java/org/apache/kafka/common/network/SslTransportLayer.java#L1003-L1040` |
+| L1 | Batching and shared binary format | `K/docs/design/design.md#L76-L92` |
+| L2 | Page-cache-centric design | `K/docs/design/design.md#L53-L64` |
+| L3 | Flush defaults | `K/server-common/src/main/java/org/apache/kafka/server/config/ServerLogConfigs.java#L101-L113` |
+| L4 | Partition directory and file naming | `K/docs/implementation/log.md#L29-L39` |
+| L5 | File suffixes; 20-digit name | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/LogFileUtils.java#L37-L52`, `#L102-L108` |
+| L6 | Index append every `indexIntervalBytes`; default | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/LogSegment.java#L255-L279`, `K/server-common/src/main/java/org/apache/kafka/server/config/ServerLogConfigs.java#L97` |
+| L7 | `OffsetIndex` format and lookup | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/OffsetIndex.java#L30-L56`, `#L90-L106` |
+| L8 | `shouldRoll` | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/LogSegment.java#L167-L173` |
+| L9 | Segment and retention defaults | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/LogConfig.java#L130-L138`, `#L160-L172`; `K/server-common/src/main/java/org/apache/kafka/server/config/ServerLogConfigs.java#L81` |
+| L10 | Deletes per segment, by largest timestamp | `K/docs/implementation/log.md#L70-L72` |
+| L11 | Pull and long poll | `K/docs/design/design.md#L135-L145` |
+| L12 | `FetchRequest` schema | `K/clients/src/main/resources/common/message/FetchRequest.json#L16-L125` |
+| L13 | Consumer fetch defaults | `K/clients/src/main/java/org/apache/kafka/clients/consumer/ConsumerConfig.java#L212`, `#L225`, `#L235`, `#L250` |
+| L14 | Reads: locate segment, binary search | `K/docs/implementation/log.md#L41-L47` |
+| L15 | `sendfile` path and TLS exception | `K/docs/design/design.md#L92-L111` |
+| L16 | `transferTo` call path | `K/clients/src/main/java/org/apache/kafka/common/record/internal/FileRecords.java#L280-L291`, `K/clients/src/main/java/org/apache/kafka/common/network/PlaintextTransportLayer.java#L212-L215` |
+| L17 | `FetchResponse` partition fields | `K/clients/src/main/resources/common/message/FetchResponse.json#L73-L111` |
 
 ### Self-check
 
-1. offset 1237을 찾는 과정을 단계별로 설명하라. → base offset으로 segment를 고르고, `.index`에서 1237 이하 최대 entry를 binary search로 찾은 뒤, 그 위치부터 `.log`를 앞으로 훑는다.
-2. offset index entry 크기와 구성은? → 8바이트: 4바이트 상대 offset + 4바이트 파일 위치.
-3. 기본 설정에서 Kafka는 언제 fsync하나? → 주기적 강제 flush가 기본으로 꺼져 있다(`Long.MAX_VALUE`). 내구성은 복제로 얻는다.
-4. retention 7일인데 8일 된 레코드가 남아 있을 수 있는 이유는? → 삭제가 segment 단위이고, segment 안 가장 큰 timestamp를 기준으로 하기 때문이다. 활성 segment도 roll되기 전에는 지워지지 않는다.
-5. zero-copy가 꺼지는 대표적인 경우는? → SSL/TLS 리스너.
-6. segment roll 조건 네 가지는? → `segment.bytes`, `segment.ms`, index full, 상대 offset 범위 초과.
+1. offset 1237을 찾는 과정은? → segment를 고르고, `.index`에서 1237 이하 최대 entry를 binary search로 찾은 뒤, 그 위치부터 `.log`를 훑는다.
+2. index가 sparse인 이유는? → 약 4 KiB마다 entry를 하나만 두어 index를 작게 유지하고 mmap할 수 있게 한다.
+3. 기본 설정에서 fsync는? → 주기적 강제 flush가 없다. 내구성은 복제로 얻는다.
+4. retention이 7일인데 더 오래된 데이터가 남는 이유는? → segment 단위로, segment 안 가장 새 레코드 기준으로 지우기 때문이다. 활성 segment는 지우지 않는다.
+5. zero-copy가 꺼지는 경우는? → TLS 리스너.
 
 ---
 
-## Lesson 3 · `replication`: ISR과 high watermark
+## Lesson 3 · `log-compaction`
 
-### Goal
+- **Title:** 키별 최신 값만 남는 로그
+- **Subtitle:** `cleanup.policy=compact`
+- **Summary:** compacted 토픽에서 cleaner가 키별 마지막 offset 지도를 만들고, 오래된 값과 tombstone을 지우되 offset과 순서는 바꾸지 않는 과정을 본다.
+- **Critical path:** keyed writes → dirty section → cleaner builds key→offset map → recopy without old values → full replay sees final state.
+- **Overview:** `delete` 정책(기본값)은 시간이나 크기로 오래된 segment를 버린다. `compact` 정책은 키마다 최소한 마지막 값을 남긴다. DB 변경 로그, 캐시 복원, `__consumer_offsets`처럼 키별 최신 상태가 필요한 토픽에 쓴다. 정책은 토픽마다 정한다. compaction은 background thread가 segment를 다시 복사해서 하므로 읽기를 막지 않는다. idempotent·transaction 데이터는 예외 규칙이 있다. producer마다 마지막 batch를 남기고, LSO 이후는 정리하지 않는다.
+- **Interview questions:** compaction은 언제 쓰나? tombstone은 언제 사라지나? compaction 후에도 offset이 그대로인 이유는? 왜 최신 레코드가 한동안 정리되지 않나?
 
-follower가 leader를 fetch하며 복제하는 동안 ISR과 high watermark(HW)가 어떻게 움직이는지, `acks=all`과 `min.insync.replicas`가 무엇을 보장하고 언제 쓰기를 거절하는지 본다.
+### Panels
 
-Interview questions it answers:
-- ISR은 무엇이고, 누가 언제 replica를 빼고 넣나?
-- high watermark는 어떻게 계산되나? consumer는 왜 HW까지만 읽나?
-- `replication.factor=3, min.insync.replicas=2, acks=all`에서 broker 두 대가 죽으면?
-- unclean leader election은 무엇이고 기본값은? ELR은 무엇을 바꿨나?
-
-### Nodes
-
-| id | Label | Kind | Illustration idea | Appears at |
-|---|---|---|---|---|
-| `producer` | Producer | `client` | Laptop with crate | S1 |
-| `leader` | Broker 1 · leader | `container` | Server tower with crown tag, log strip showing LEO marker | S1 |
-| `f2` | Broker 2 · follower | `container` | Server tower, log strip | S2 |
-| `f3` | Broker 3 · follower | `container` | Server tower, log strip | S2 |
-| `controller` | KRaft controller | `framework` | Control-tower building with a small Raft-log scroll | S8 |
-| `consumer` | Consumer | `client` | Laptop | S6 |
-
-Node-state panels: `leader` (table: replica, LEO, in ISR, lastCaughtUp ms; plus HW row), `controller` (table: partition, leader, leaderEpoch, ISR, ELR).
+| Node | Panel (initial) |
+|---|---|
+| `log` (`users-0`) | `users-0`: `clean: —` / `dirty: —` / `active: —` |
+| `cleaner` | `cleaner`: `chosen: —` / `dirty ratio: —` / `map: —` |
 
 ### Steps
 
-**S1 · mutate · `leader` · Broker**
+**S1 · move · `producer → log` · Network** — *critical*
+- Token: `data` · `key=123 → bill@gmail.com`
+- Title: 같은 키의 변경 이벤트
+- Subtitle: user 123의 이메일이 바뀔 때마다 key=123 레코드를 쓴다.
+- Prose: 변경마다 같은 키로 레코드를 쓴다. 그대로 두면 로그가 계속 자라고, 시간으로 지우면 어떤 키의 현재 값까지 사라진다. compaction은 키마다 마지막 값을 남겨 두 문제를 함께 푼다.
+- Facts: topic config `cleanup.policy=compact`; broker default `log.cleanup.policy` = `delete`; records need a key.
+- Event log: `Producer → Broker 1 · Network · Produce users-0 key=123 · 40 B (E.G.)`
+- Sources: [C1], [C2]
+
+**S2 · mutate · `log` · Storage** — *critical*
+- Title: clean, dirty, active
+- Subtitle: 이미 정리한 구간 뒤에 아직 정리하지 않은 구간이 있다.
+- Prose: cleaner는 로그를 이미 정리한 clean 구간과 그 뒤의 dirty 구간으로 나눠 본다. 활성 segment는 절대 정리하지 않는다. 그래서 최신 레코드는 segment가 roll될 때까지 그대로 남는다.
+- Facts: active segment never compacted; only closed segments are cleanable.
+- Event log: `Broker 1 · Storage · users-0 clean ≤ 35, dirty 36–39 (E.G.) · —`
+- After: `clean: 0–35 (E.G.)` / `dirty: 36 123=bill@microsoft.com · 37 456=x · 38 123=bill@gmail.com · 39 456=y (E.G.)` / `active: 40– (E.G.)`
+- Sources: [C3]
+
+**S3 · mutate · `cleaner` · Broker** — *critical*
+- Title: 정리할 로그 고르기
+- Subtitle: dirty 비율이 가장 높고 `min.cleanable.dirty.ratio`를 넘은 로그.
+- Prose: cleaner thread는 `compact` 로그 중 dirty 바이트 비율이 가장 높은 로그를 고른다. 비율이 `min.cleanable.dirty.ratio`(0.5) 이하면 건너뛴다. 그래서 쓰기가 적은 토픽은 오래 정리되지 않을 수 있다.
+- Facts: `min.cleanable.dirty.ratio` = 0.5; `log.cleaner.threads` = 1.
+- Event log: `Log cleaner · Broker · choose users-0 (ratio 0.62) (E.G.) · —`
+- After: `chosen: users-0` / `dirty ratio: 0.62 (E.G.)` / `map: —`
+- Sources: [C3], [C4], [C5]
+
+**S4 · mutate · `cleaner` · Broker** — *critical*
+- Title: key → 마지막 offset 지도
+- Subtitle: dirty 구간을 훑어 키마다 가장 뒤의 offset을 기록한다.
+- Prose: cleaner는 dirty 구간을 읽어 키마다 가장 뒤의 offset을 담은 지도를 만든다. 지도의 메모리는 `log.cleaner.dedupe.buffer.size`로 제한된다. 키가 아주 많으면 한 번에 다 담지 못해 여러 번에 나눠 정리한다.
+- Facts: map = key → last offset in the dirty section; `log.cleaner.dedupe.buffer.size` = 134217728 (128 MiB).
+- Event log: `Log cleaner · Broker · map 36–39 → 2 keys (E.G.) · —`
+- After: `chosen: users-0` / `dirty ratio: 0.62 (E.G.)` / `map: 123 → 38 · 456 → 39 (E.G.)`
+- Sources: [C3], [C4], [C6]
+
+**S5 · mutate · `log` · Storage** — *critical*
+- Title: 다시 복사하며 오래된 값 제거
+- Subtitle: 지도에 더 뒤의 offset이 있는 레코드는 버린다. offset은 그대로다.
+- Prose: cleaner는 segment를 다시 복사하면서, 지도에 더 뒤의 offset이 있는 키의 레코드를 뺀다. 남은 레코드는 원래 offset을 유지하고 순서도 바뀌지 않는다. 그래서 offset 36, 37, 38에서 읽기 시작하면 모두 38부터 받는다.
+- Facts: offsets never change; order never changes; cleaned segments swap in one at a time.
+- Event log: `Log cleaner → users-0 · Storage · recopy, drop 36 and 37 (E.G.) · —`
+- After: `clean: 0–35 · 38 123=bill@gmail.com · 39 456=y (E.G.)` / `dirty: —` / `active: 40– (E.G.)`
+- Sources: [C3], [C6]
+
+**S6 · mutate · `log` · Storage** — *side*
+- Title: tombstone으로 삭제
+- Subtitle: value가 null인 레코드는 삭제 표시이고, `delete.retention.ms` 뒤에 자신도 사라진다.
+- Prose: key가 있고 value가 null인 레코드가 tombstone이다. compaction은 tombstone보다 앞선 같은 키의 값을 지운다. tombstone 자신은 `delete.retention.ms`(24시간) 뒤에 지운다. 그보다 오래 뒤처진 consumer는 삭제를 놓친다.
+- Facts: tombstone = key + null value; `delete.retention.ms` = 86400000.
+- Event log: `Producer → users-0 · Storage · tombstone key=456 at 42 (E.G.) · —`
+- After: `clean: 0–35 · 38 123=bill@gmail.com · 42 456=null (until +24h) (E.G.)` / `dirty: —` / `active: 43– (E.G.)`
+- Sources: [C3], [C6]
+
+**S7 · mutate · `log` · Storage** — *side*
+- Title: 최신 값이 정리되지 않을 때
+- Subtitle: 활성 segment가 roll되어야 정리 대상이 된다.
+- Prose: 쓰기가 적은 토픽에서는 활성 segment가 오래 닫히지 않는다. 그동안 그 안의 오래된 값이 남는다. `max.compaction.lag.ms`를 정하면 segment를 그 시간 안에 roll하고, dirty 비율이 낮아도 정리한다.
+- Facts: roll at min(`segment.ms`, `max.compaction.lag.ms`); `max.compaction.lag.ms` default = Long.MAX (off).
+- Event log: `Broker 1 · Storage · roll users-0 (max.compaction.lag.ms) (E.G.) · —`
+- After: `clean: 0–35 · 38 · 42 (E.G.)` / `dirty: 43–50 (E.G.)` / `active: 51– (E.G.)`
+- Sources: [C7], [C5]
+
+**S8 · move · `log → c1` · Network** — *critical*
+- Token: `response` · `FetchResponse users-0 from 0`
+- Title: 처음부터 읽으면 최종 상태
+- Subtitle: 처음부터 읽는 consumer는 키마다 최종 값을 쓰인 순서대로 본다.
+- Prose: 로그 처음부터 읽는 consumer는 모든 키의 최종 값을 쓰인 순서대로 본다. 캐시나 로컬 상태를 이 토픽으로 다시 만들 수 있다. 단 tombstone까지 보려면 `delete.retention.ms` 안에 끝까지 읽어야 한다.
+- Facts: full replay sees final state per key; tombstones visible only within `delete.retention.ms`.
+- Event log: `Broker 1 → Consumer A · Network · FetchResponse users-0 0.. · 64 KiB (E.G.)`
+- Sources: [C6]
+
+**Replay:** keyed writes → dirty section → cleaner picks the log → key→offset map → recopy without old values → consumer replays to the final state.
+
+### Decoder records used
+
+None. The record batch decoder from lesson 1 is not repeated here; a tombstone is a record with `valueLength = -1`.
+
+### Sources
+
+| id | What | URL |
+|---|---|---|
+| C1 | Compaction motivation and example | `K/docs/design/design.md#L366-L401` |
+| C2 | `log.cleanup.policy` default | `K/server-common/src/main/java/org/apache/kafka/server/config/ServerLogConfigs.java#L89` |
+| C3 | `LogCleaner` Javadoc | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/LogCleaner.java#L47-L95` |
+| C4 | Cleaner defaults; dirtiest-log choice | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/CleanerConfig.java#L38-L44`, `K/storage/src/main/java/org/apache/kafka/storage/internals/log/LogCleanerManager.java#L277-L290` |
+| C5 | Topic compaction defaults | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/CleanerConfig.java#L134-L137` |
+| C6 | Compaction basics, guarantees, details | `K/docs/design/design.md#L403-L434` |
+| C7 | Active segment roll and `max.compaction.lag.ms` | `K/docs/design/design.md#L437-L461` |
+
+### Self-check
+
+1. `delete`와 `compact`의 차이는? → `delete`는 시간이나 크기로 segment를 지운다. `compact`는 키마다 마지막 값을 남긴다.
+2. compaction 후 offset 36, 37, 38에서 읽으면? → 모두 38부터 받는다. offset은 바뀌지 않는다.
+3. tombstone은 언제 사라지나? → `delete.retention.ms`(24시간) 뒤에.
+4. 오래된 값이 정리되지 않고 남는 흔한 이유는? → 활성 segment가 아직 roll되지 않았거나, dirty 비율이 0.5를 넘지 않았다.
+
+---
+
+## Lesson 4 · `replication`
+
+- **Title:** ISR과 high watermark
+- **Subtitle:** `acks=all`이 무엇을 기다리는가
+- **Summary:** follower fetch로 LEO가 오르고, HW가 따라 오르고, `acks=all` 응답이 나가고, 느린 follower가 ISR에서 빠지고, `min.insync.replicas`가 쓰기를 막는 과정을 본다.
+- **Critical path:** leader append → follower Fetch → LEO → HW → `acks=all` response → consumer reads to HW.
+- **Overview:** 복제 단위는 파티션이다. leader 하나가 쓰기를 받고, follower가 consumer처럼 fetch해 복제한다. ISR(in-sync replicas) 전원이 받은 메시지가 committed이고, consumer는 committed 메시지만 본다. replica가 f+1개면 f개의 장애에서 committed 데이터를 잃지 않는다. 운영 표준은 RF 3, `min.insync.replicas` 2, `acks=all`이다. leader 장애와 선출은 lesson 8에서 다룬다.
+- **Interview questions:** ISR은 무엇이고 언제 바뀌나? HW는 어떻게 정해지나? consumer는 왜 HW까지만 읽나? RF 3, min ISR 2에서 broker 두 대가 죽으면?
+
+### Panels
+
+| Node | Panel (initial) |
+|---|---|
+| `b1` | `orders-0 replicas`: `B1 (leader): LEO 100 · ISR` / `B2: LEO 100 · ISR` / `B3: LEO 100 · ISR` / `HW: 100` |
+| `controller` | `orders-0`: `leader: 1` / `ISR: [1, 2, 3]` |
+
+### Steps
+
+**S1 · mutate · `b1` · Broker** — *critical*
 - Title: leader에 쓰기
-- Subtitle: 모든 쓰기는 leader로, leader의 LEO가 먼저 올라간다.
-- Prose: 복제 단위는 토픽 파티션이고, 파티션마다 leader 하나와 follower 0개 이상이 있다. replication factor는 leader를 포함한 replica 수다. 쓰기는 모두 leader로 가고, leader는 로컬 로그에 append해 LEO(log end offset)를 올린다. follower 로그는 leader와 같은 offset과 순서를 가진다.
-- Facts: unit = topic partition; RF includes leader; `default.replication.factor` = 1; un-replicated topic = RF 1.
-- Event log: `Producer → Broker 1 · Network · Produce acks=-1 orders-0 · 16 KiB (E.G.)`
-- State: `B1 LEO 100, B2 LEO 100, B3 LEO 100, HW 100` → `B1 LEO 110 … HW 100 (E.G.)`
+- Subtitle: 모든 쓰기는 leader로 가고, leader의 LEO가 먼저 오른다.
+- Prose: 파티션마다 leader 하나와 follower가 있다. replication factor는 leader를 포함한 replica 수다. 쓰기는 모두 leader로 간다. leader는 로컬에 append해 LEO(log end offset)를 올린다.
+- Facts: RF includes the leader; all writes go to the leader; `default.replication.factor` = 1 (set 3 in production).
+- Event log: `Producer → Broker 1 · Network · Produce acks=all orders-0 · 16 KiB (E.G.)`
+- After: `B1 (leader): LEO 110 · ISR (E.G.)` / `B2: LEO 100 · ISR` / `B3: LEO 100 · ISR` / `HW: 100`
 - Sources: [R1]
 
-**S2 · move · `f2 → leader` · Network**
+**S2 · move · `b2 → b1` · Network** — *critical*
+- Token: `request` · `Fetch fetchOffset=100 (replica 2)`
 - Title: follower가 fetch한다
-- Subtitle: follower는 consumer처럼 leader에서 pull한다.
-- Prose: follower는 일반 consumer처럼 leader에 Fetch를 보내 로그를 받아 자기 로그에 붙인다. pull 방식이라 follower가 로그 entry를 자연스럽게 batch로 묶을 수 있다. Fetch v15부터 follower는 `ReplicaState`(ReplicaId, ReplicaEpoch)로 자신을 밝힌다.
-- Facts: `num.replica.fetchers` = 1; `replica.fetch.max.bytes` = 1048576; `replica.fetch.wait.max.ms` = 500; follower identity = `ReplicaState.ReplicaId` (v15+), consumer = -1.
-- Event log: `Broker 2 → Broker 1 · Network · Fetch orders-0 fetchOffset=100 replicaId=2 · ~100 B (E.G.)`
-- Sources: [R2], [R3], [R4]
+- Subtitle: follower는 consumer처럼 leader에서 당겨 온다.
+- Prose: follower는 일반 consumer처럼 leader에 Fetch를 보내고, 받은 데이터를 자기 로그에 붙인다. 요청의 fetch offset은 follower가 다음에 받을 offset, 즉 follower의 LEO다.
+- Facts: followers pull; `replica.fetch.wait.max.ms` = 500; `num.replica.fetchers` = 1.
+- Event log: `Broker 2 → Broker 1 · Network · Fetch fetchOffset=100 replica=2 · ~100 B (E.G.)`
+- Decoder: **FetchRequest** (`wire: yes`, follower column)
+- Sources: [R2], [R3]
 
-**S3 · mutate · `leader` · Broker**
+**S3 · mutate · `b1` · Broker** — *critical*
 - Title: follower LEO 기록
-- Subtitle: follower의 fetch offset이 곧 follower의 LEO다.
-- Prose: leader는 follower가 요청한 fetch offset으로 follower의 LEO를 안다. 다음 fetch에서 offset 110을 요청하면 follower가 100–109를 받아 썼다는 뜻이다. leader는 replica마다 마지막으로 완전히 따라잡은 시각(`lastCaughtUpTime`)을 갱신한다.
-- Facts: follower LEO learned from next `FetchOffset`; caught-up tracking per replica; lag limit = `replica.lag.time.max.ms` = 30000.
+- Subtitle: 다음 fetch offset이 follower의 LEO다.
+- Prose: B2가 다음 fetch에서 110을 요청하면 leader는 B2가 110까지 받았다고 기록한다. 이때 B2가 leader 끝까지 따라잡은 시각도 기록한다. 이 시각이 ISR 판단 기준이다(S7).
+- Facts: follower LEO = its `FetchOffset`; caught-up = `LEO == leader LEO` or caught up within `replica.lag.time.max.ms`.
 - Event log: `Broker 2 → Broker 1 · Network · Fetch fetchOffset=110 · —`
-- State: `B2 LEO 100` → `B2 LEO 110`
-- Sources: [R5], [R4]
+- After: `B1 (leader): LEO 110 · ISR` / `B2: LEO 110 · ISR · caught up` / `B3: LEO 105 · ISR (E.G.)` / `HW: 100`
+- Sources: [R4], [R5]
 
-**S4 · mutate · `leader` · Broker**
+**S4 · mutate · `b1` · Broker** — *critical*
 - Title: high watermark 전진
-- Subtitle: HW = ISR(및 합류 가능한 caught-up replica) LEO의 최솟값.
-- Prose: leader는 ISR replica의 LEO가 바뀌거나 ISR이 바뀔 때 HW를 다시 계산한다. 새 HW는 leader LEO에서 시작해, 그보다 작은 LEO를 가진 ISR 멤버(또는 ISR에 들어올 자격이 있는 caught-up replica)의 LEO로 낮춘다. ISR 크기가 `min.insync.replicas`보다 작으면 HW를 올리지 않는다(strict min ISR).
-- Facts: HW = min LEO over (maximal ISR ∪ caught-up eligible); HW does not advance when ISR < `min.insync.replicas`; `replica.high.watermark.checkpoint.interval.ms` = 5000.
-- Event log: `Broker 1 · Broker · HW 100 → 105 (B3 LEO 105) (E.G.) · —`
-- State: `HW 100` → `HW 105 (E.G.)`
-- Sources: [R6], [R4]
+- Subtitle: HW = ISR 멤버 LEO 중 최솟값.
+- Prose: HW는 ISR 전원이 가진 마지막 지점이다. 여기서는 B3의 105다. HW 아래 메시지가 committed다. ISR이 `min.insync.replicas`보다 작아지면 HW는 오르지 않는다.
+- Facts: HW = min LEO over ISR; messages below HW are committed; HW does not advance when ISR < `min.insync.replicas`.
+- Event log: `Broker 1 · Broker · HW 100 → 105 (E.G.) · —`
+- After: `B1 (leader): LEO 110 · ISR` / `B2: LEO 110 · ISR` / `B3: LEO 105 · ISR (E.G.)` / `HW: 105 (E.G.)`
+- Sources: [R6]
 
-**S5 · move · `leader → producer` · Network**
+**S5 · move · `b1 → producer` · Network** — *critical*
+- Token: `response` · `ProduceResponse baseOffset=100`
 - Title: `acks=all` 응답
-- Subtitle: 요청 offset까지 HW가 오면 응답한다.
-- Prose: `acks=-1` 요청은 purgatory에서 기다리다가, HW가 요청의 offset 이상이 되면 완료된다. 그때 ISR 크기가 min ISR보다 작아졌으면 `NOT_ENOUGH_REPLICAS_AFTER_APPEND`를 돌려준다. 이미 로컬에 쓴 뒤 ISR이 줄어든 경우다.
-- Facts: completion = `leaderLog.highWatermark >= requiredOffset`; error if ISR shrank after append = `NOT_ENOUGH_REPLICAS_AFTER_APPEND`; `acks=all` = "all current in-sync replicas", not all assigned replicas.
-- Event log: `Broker 1 → Producer · Network · ProduceResponse orders-0 baseOffset=100 · 6 ms (E.G.)`
+- Subtitle: HW가 요청 offset을 넘으면 응답한다.
+- Prose: `acks=all` 요청은 HW가 그 요청의 offset을 넘을 때까지 브로커에서 기다린다. "all"은 할당된 모든 replica가 아니라 현재 ISR 전원이다. 그래서 ISR이 leader 하나로 줄면, `min.insync.replicas`가 없을 때 leader만으로도 성공 응답이 나간다.
+- Facts: completes when HW ≥ request offset; `acks=all` = current ISR, not all replicas.
+- Event log: `Broker 1 → Producer · Network · ProduceResponse baseOffset=100 · 6 ms (E.G.)`
 - Sources: [R7], [R8]
 
-**S6 · move · `consumer → leader` · Network**
+**S6 · move · `c1 → b1` · Network** — *critical*
+- Token: `request` · `Fetch offset=100`
 - Title: consumer는 HW까지만 본다
 - Subtitle: committed 메시지만 consumer에게 준다.
-- Prose: committed, 즉 ISR 전체가 받은 메시지만 consumer에게 준다. 그래서 consumer는 leader가 죽으면 사라질 수 있는 메시지를 보지 않는다. `read_uncommitted` consumer의 fetch 상한은 HW이고, `read_committed`는 LSO(lesson 5)다. leader가 아닌 replica에서 읽는 경우도 있지만 이 lesson에서는 다루지 않는다.
-- Facts: consumer fetch isolation = `HIGH_WATERMARK`; follower fetch isolation = `LOG_END`; `FetchResponse.HighWatermark` returned per partition.
-- Event log: `Consumer → Broker 1 · Network · Fetch offset=100 → records 100..104 (HW 105) (E.G.) · 8 KiB (E.G.)`
-- Sources: [R9], [R10], [R11]
+- Prose: consumer fetch는 HW까지만 레코드를 돌려준다. 그래서 consumer는 leader가 죽으면 사라질 수 있는 메시지를 보지 않는다. follower는 예외로 LEO까지 읽는다. 그래야 복제가 진행된다.
+- Facts: consumer reads up to HW; follower reads up to LEO; `read_committed` reads up to LSO (lesson 7).
+- Event log: `Consumer A → Broker 1 · Network · Fetch offset=100 → 100–104 (E.G.) · 8 KiB (E.G.)`
+- Sources: [R9], [R10]
 
-**S7 · mutate · `leader` · Broker**
+**S7 · mutate · `b1` · Broker** — *side*
 - Title: 느린 follower는 ISR에서 빠진다
-- Subtitle: `replica.lag.time.max.ms` 동안 따라잡지 못하면 out-of-sync.
-- Prose: follower가 멈췄거나(LEO가 안 오름) 느려서, 최근 `replica.lag.time.max.ms` 안에 leader LEO까지 따라잡은 적이 없으면 out-of-sync다. leader는 이를 감지해 ISR 축소를 제안한다. 브로커가 아예 죽으면 controller가 세션 만료로 알아채고 ISR에서 뺀다(lesson 6).
-- Facts: `replica.lag.time.max.ms` = 30000; stuck and slow followers both use `lastCaughtUpTimeMs`; liveness = active controller session + not too far behind.
+- Subtitle: `replica.lag.time.max.ms`(30초) 동안 따라잡지 못하면 out-of-sync다.
+- Prose: B3가 30초 동안 leader 끝까지 따라잡지 못했다. 디스크가 느리거나, GC가 길거나, 네트워크가 막힌 경우다. leader는 B3를 ISR에서 빼려고 한다. replica lag 알람이 울리는 지점이 여기다.
+- Facts: `replica.lag.time.max.ms` = 30000; stuck or slow follower → removed from ISR; dead broker → removed via controller session (lesson 8).
 - Event log: `Broker 1 · Broker · B3 out of sync (lag 31 s) (E.G.) · —`
-- State: `B3 in ISR = yes` → `B3 in ISR = pending removal`
-- Sources: [R12], [R13]
+- After: `B1 (leader): LEO 140 · ISR` / `B2: LEO 140 · ISR` / `B3: LEO 105 · leaving ISR (E.G.)` / `HW: 105 (E.G.)`
+- Sources: [R11], [R12]
 
-**S8 · move · `leader → controller` · Controller**
-- Title: AlterPartition으로 ISR 변경 요청
-- Subtitle: ISR 변경은 controller가 metadata에 커밋해야 확정된다.
-- Prose: leader는 새 ISR을 `AlterPartition`(API key 56)으로 controller에 보낸다. controller는 broker epoch를 검사한 뒤 `PartitionChangeRecord`를 metadata log에 쓴다. 커밋 전까지 leader는 HW 계산에 "maximal ISR"(현재 ISR ∪ 추가 중 replica)을 쓴다. 이 집합은 더 보수적이라 안전하다.
-- Facts: `AlterPartition` API key = 56, versions 2–3; ISR persisted in cluster metadata whenever it changes; maximal ISR used while in flight.
-- Event log: `Broker 1 → Controller · Controller · AlterPartition orders-0 ISR [1,2] · ~60 B (E.G.)`
-- Sources: [R14], [R15], [R6]
+**S8 · move · `b1 → controller` · Controller** — *side*
+- Token: `request` · `AlterPartition orders-0 ISR=[1,2]`
+- Title: ISR 변경 요청
+- Subtitle: ISR 변경은 controller가 metadata에 기록해야 확정된다.
+- Prose: leader는 새 ISR을 `AlterPartition`으로 controller에 보낸다. controller가 기록하면 모든 broker가 새 ISR을 안다. ISR은 바뀔 때마다 cluster metadata에 저장된다. 그래서 controller는 leader가 죽었을 때 누구를 새 leader로 뽑을지 안다.
+- Facts: request = `AlterPartition`; ISR persisted in cluster metadata on every change.
+- Event log: `Broker 1 → Controller · Controller · AlterPartition ISR [1,2] · ~60 B (E.G.)`
+- Sources: [R13], [R14]
 
-**S9 · mutate · `controller` · Controller**
-- Title: ISR 축소 커밋
-- Subtitle: 이제 ISR = [1,2], HW 계산에서 B3는 빠진다.
-- Prose: controller가 `PartitionChangeRecord(Isr=[1,2])`를 커밋하면 broker들이 metadata를 받아 반영한다. ISR 모델에서는 replica가 f+1개면 committed 메시지를 잃지 않고 f개의 장애를 견딘다. 다수결 quorum처럼 2f+1개가 필요하지 않다.
-- Facts: f+1 replicas tolerate f failures (ISR model); majority quorum needs 2f+1; any ISR member is eligible for leader.
-- Event log: `Controller · Controller · PartitionChangeRecord orders-0 isr=[1,2] (E.G.) · —`
-- State: `ISR [1,2,3]` → `ISR [1,2]`
-- Sources: [R16], [R17]
+**S9 · mutate · `controller` · Controller** — *side*
+- Title: ISR 축소 확정
+- Subtitle: ISR=[1,2]. 이제 B3 없이 HW가 오른다.
+- Prose: controller가 새 ISR을 기록하면, leader는 B3를 빼고 HW를 계산한다. 막혀 있던 `acks=all` 요청도 진행된다. ISR 멤버라면 누구나 다음 leader가 될 수 있다.
+- Facts: ISR members are the leader candidates; HW resumes without the removed replica.
+- Event log: `Controller · Controller · orders-0 ISR=[1,2] (E.G.) · —`
+- After: `leader: 1` / `ISR: [1, 2]`
+- Sources: [R14], [R15]
 
-**S10 · mutate · `leader` · Broker**
-- Title: `min.insync.replicas`로 쓰기 거절
+**S10 · mutate · `b1` · Broker** — *side*
+- Title: `min.insync.replicas`가 쓰기를 막는다
 - Subtitle: ISR이 min ISR보다 작으면 `acks=all` 쓰기를 거절한다.
-- Prose: B2도 빠져 ISR=[1]이 되면, `min.insync.replicas=2`인 토픽은 `acks=-1` 쓰기를 append 전에 `NotEnoughReplicasException`으로 거절한다. 이 설정은 `acks=all`일 때만 효과가 있다. 일관성은 높아지지만 가용성은 낮아진다.
-- Facts: check = `inSyncSize < minIsr && requiredAcks == -1` → `NotEnoughReplicasException`; `min.insync.replicas` = 1 (default); effect only with `acks=all`.
-- Event log: `Producer → Broker 1 · Network · Produce acks=-1 → NOT_ENOUGH_REPLICAS · 1 ms (E.G.)`
-- State: `ISR [1,2] · writes OK` → `ISR [1] · acks=all rejected`
-- Sources: [R18], [R19], [R13]
+- Prose: B2까지 빠져 ISR=[1]이 되면, `min.insync.replicas=2`인 토픽은 `acks=all` 쓰기를 `NOT_ENOUGH_REPLICAS`로 거절한다. 사라질 수 있는 쓰기를 받지 않는 대신 가용성을 내준다. 기본값은 1이므로 운영에서는 2로 올린다.
+- Facts: ISR < `min.insync.replicas` + `acks=all` → `NOT_ENOUGH_REPLICAS`; `min.insync.replicas` = 1 (default); only applies to `acks=all`.
+- Event log: `Producer → Broker 1 · Network · Produce acks=all → NOT_ENOUGH_REPLICAS · 1 ms (E.G.)`
+- After: `B1 (leader): LEO 140 · ISR` / `B2: LEO 120 · out (E.G.)` / `B3: LEO 105 · out` / `HW: 140 · acks=all rejected`
+- Sources: [R16], [R17], [R8]
 
-**S11 · mutate · `controller` · Controller**
-- Title: leader 장애와 새 leader 선출
-- Subtitle: controller가 ISR에서 새 leader를 고르고 leader epoch를 올린다.
-- Prose: leader 브로커가 죽으면 controller가 남은 ISR 멤버 중 하나를 새 leader로 고른다. 여러 파티션의 leader 변경은 묶어서 알린다. 새 leader epoch는 record batch의 `partitionLeaderEpoch`에 찍힌다. follower는 Fetch의 `LastFetchedEpoch`/`DivergingEpoch`로 갈라진 로그 끝을 잘라 낸다.
-- Facts: controller elects from ISR; leadership notifications batched; Fetch v12+ carries `LastFetchedEpoch`, response `DivergingEpoch` (truncation detection).
-- Event log: `Controller · Controller · PartitionChangeRecord orders-0 leader=2 (E.G.) · —`
-- State: `leader 1, epoch 7` → `leader 2, epoch 8 (E.G.)`
-- Sources: [R20], [R3], [R21]
+**Replay:** Produce to leader → follower Fetch → follower LEO → HW → `acks=all` response → consumer Fetch up to HW.
 
-**S12 · mutate · `controller` · Controller**
-- Title: 모두 죽으면: unclean election
-- Subtitle: 기본은 ISR replica가 돌아올 때까지 기다린다(일관성 우선).
-- Prose: ISR 전원이 죽으면 두 가지 선택이 있다. ISR replica가 돌아오기를 기다리거나, 처음 살아난 replica를 ISR이 아니어도 leader로 삼는 것이다. 0.11.0.0부터 기본은 기다리는 쪽이다. `unclean.leader.election.enable=true`면 가용성을 위해 committed 메시지를 잃을 수 있다.
-- Facts: `unclean.leader.election.enable` = false; trade-off = availability vs consistency; unclean leader → `LeaderRecoveryState` = 1 while recovering.
-- Event log: `Controller · Controller · orders-0 offline (no ISR alive) · —`
-- State: `leader 2, ISR [2]` → `leader -1 (offline), ISR [2]`
-- Sources: [R22], [R23], [R24]
+### Decoder records used
 
-**S13 · mutate · `controller` · Controller**
-- Title: ELR (Eligible Leader Replicas)
-- Subtitle: strict min ISR 덕에, ISR 밖이어도 안전한 replica를 leader 후보로 기록한다.
-- Prose: HW가 min ISR 미만에서 오르지 않으므로(S4), ISR에서 빠진 일부 replica는 committed 데이터를 모두 가지고 있다. KRaft controller는 이들을 `PartitionRecord`의 `EligibleLeaderReplicas`에 저장한다. 선출 순서는 ISR → fenced가 아닌 ELR → unfenced인 마지막 leader다. ELR은 4.0에서 도입됐고, 4.1부터 새 클러스터에서 기본으로 켜진다.
-- Facts: feature flag = `eligible.leader.replicas.version=1`; order = ISR → unfenced ELR → last known leader; default-on for new clusters since 4.1.
-- Event log: `Controller · Controller · orders-0 ELR=[3] (E.G.) · —`
-- State: `ISR [2], ELR []` → `ISR [2], ELR [3] (E.G.)`
-- Sources: [R25], [R26]
-
-### Decoder records
-
-1. **FetchRequest v18 from a follower** (S2): same layout as lesson 2, with `ReplicaState` tagged field set (`ReplicaId=2`, `ReplicaEpoch` = broker epoch, E.G.).
-2. **PartitionChangeRecord v2** (S9, S11, S13): see "Decoder: PartitionChangeRecord" (shared with lesson 6).
+| Record | Step | wire |
+|---|---|---|
+| FetchRequest (follower) | S2 | yes |
 
 ### Sources
 
 | id | What | URL |
 |---|---|---|
-| R1 | Replication basics; `default.replication.factor` default | `K/docs/design/design.md#L279-L285`, `K/server/src/main/java/org/apache/kafka/server/config/ReplicationConfigs.java#L41-L42` |
+| R1 | Replication basics; `default.replication.factor` | `K/docs/design/design.md#L279-L285`, `K/server/src/main/java/org/apache/kafka/server/config/ReplicationConfigs.java#L41-L42` |
 | R2 | Followers pull like consumers | `K/docs/design/design.md#L287` |
-| R3 | Fetch schema: `ReplicaState`, `LastFetchedEpoch` | `K/clients/src/main/resources/common/message/FetchRequest.json#L16-L125` |
-| R4 | Replica fetcher and lag defaults | `K/server/src/main/java/org/apache/kafka/server/config/ReplicationConfigs.java#L55-L103` |
-| R5 | `isFollowerInSync` (LEO ≥ HW) | `K/core/src/main/scala/kafka/cluster/Partition.scala#L907-L911` |
-| R6 | `maybeIncrementLeaderHW` (incl. min-ISR guard, maximal ISR) | `K/core/src/main/scala/kafka/cluster/Partition.scala#L985-L1035` |
+| R3 | Replica fetcher defaults | `K/server/src/main/java/org/apache/kafka/server/config/ReplicationConfigs.java#L55-L103` |
+| R4 | `isFollowerInSync` | `K/core/src/main/scala/kafka/cluster/Partition.scala#L907-L911` |
+| R5 | `ReplicaState.isCaughtUp` | `K/server/src/main/java/org/apache/kafka/server/replica/ReplicaState.java#L62-L67` |
+| R6 | `maybeIncrementLeaderHW` (incl. min-ISR guard) | `K/core/src/main/scala/kafka/cluster/Partition.scala#L985-L1035` |
 | R7 | `checkEnoughReplicasReachOffset` | `K/core/src/main/scala/kafka/cluster/Partition.scala#L947-L981` |
-| R8 | "acks=all" = current ISR | `K/docs/design/design.md#L353-L356` |
+| R8 | `acks=all` = current ISR; min ISR trade-off | `K/docs/design/design.md#L351-L356` |
 | R9 | Only committed messages reach consumers | `K/docs/design/design.md#L302-L309` |
 | R10 | `FetchIsolation` | `K/server-common/src/main/java/org/apache/kafka/server/storage/log/FetchIsolation.java#L22-L39` |
-| R11 | `FetchResponse.HighWatermark` | `K/clients/src/main/resources/common/message/FetchResponse.json#L73` |
-| R12 | Out-of-sync detection | `K/core/src/main/scala/kafka/cluster/Partition.scala#L1133-L1161` |
-| R13 | Liveness conditions, ISR removal | `K/docs/design/design.md#L289-L298` |
-| R14 | `AlterPartition` request | `K/clients/src/main/resources/common/message/AlterPartitionRequest.json#L17` |
-| R15 | Controller `alterPartition` checks broker epoch | `K/metadata/src/main/java/org/apache/kafka/controller/ReplicationControlManager.java#L1078-L1083` |
-| R16 | ISR vs majority vote, f+1 | `K/docs/design/design.md#L321-L333` |
-| R17 | `PartitionChangeRecord` | `K/metadata/src/main/resources/common/metadata/PartitionChangeRecord.json#L16-L56` |
-| R18 | `NotEnoughReplicasException` on append | `K/core/src/main/scala/kafka/cluster/Partition.scala#L1230-L1240` |
-| R19 | `min.insync.replicas` default | `K/server-common/src/main/java/org/apache/kafka/server/config/ServerLogConfigs.java#L155` |
-| R20 | Controller elects from ISR, batches notifications | `K/docs/design/design.md#L360-L364` |
-| R21 | Record batch `partitionLeaderEpoch` field | `K/docs/implementation/message-format.md#L36-L38` |
-| R22 | Unclean leader election | `K/docs/design/design.md#L337-L349` |
-| R23 | `unclean.leader.election.enable` default | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/LogConfig.java#L138` |
-| R24 | `LeaderRecoveryState` meaning | `K/metadata/src/main/resources/common/metadata/PartitionChangeRecord.json#L44-L45` |
-| R25 | Eligible Leader Replicas | `K/docs/operations/eligible-leader-replicas.md#L29-L56` |
-| R26 | `PartitionRecord.EligibleLeaderReplicas` | `K/metadata/src/main/resources/common/metadata/PartitionRecord.json#L47-L52` |
+| R11 | Out-of-sync detection | `K/core/src/main/scala/kafka/cluster/Partition.scala#L1133-L1161` |
+| R12 | Liveness conditions | `K/docs/design/design.md#L289-L298` |
+| R13 | `AlterPartition` request | `K/clients/src/main/resources/common/message/AlterPartitionRequest.json#L16-L60`, `K/metadata/src/main/java/org/apache/kafka/controller/ReplicationControlManager.java#L1078-L1083` |
+| R14 | ISR persisted in metadata; ISR vs majority | `K/docs/design/design.md#L321-L333` |
+| R15 | Controller elects from ISR | `K/docs/design/design.md#L360-L364` |
+| R16 | `NotEnoughReplicasException` | `K/core/src/main/scala/kafka/cluster/Partition.scala#L1230-L1240` |
+| R17 | `min.insync.replicas` default | `K/server-common/src/main/java/org/apache/kafka/server/config/ServerLogConfigs.java#L155` |
 
 ### Self-check
 
-1. HW 계산 규칙은? → ISR(maximal ISR과 합류 가능한 caught-up replica 포함) LEO의 최솟값이다. ISR이 min ISR 미만이면 오르지 않는다.
-2. RF=3, `min.insync.replicas=2`, `acks=all`에서 broker 2대가 죽으면? → ISR=[1]이 되고, `acks=all` 쓰기는 `NOT_ENOUGH_REPLICAS`로 거절된다. 읽기는 기존 HW까지 된다.
-3. RF=2, min ISR 1, `acks=all`에서 한 대가 죽은 뒤 들어온 쓰기의 위험은? → ISR=[leader]만으로 성공 응답이 나간다. 그 leader까지 죽으면 유실된다.
-4. follower가 ISR에서 빠지는 두 경우는? → controller 세션 만료(브로커 사망), 또는 `replica.lag.time.max.ms` 동안 따라잡지 못함.
-5. unclean election 기본값과 그 의미는? → `false`. ISR replica가 돌아올 때까지 파티션은 unavailable이다.
-6. ELR 후보 replica가 ISR 밖인데도 안전한 이유는? → HW가 min ISR 미만에서 오르지 않으므로, committed 데이터를 모두 가진 replica만 ELR에 남기 때문이다.
+1. HW는 어떻게 정해지나? → ISR 멤버 LEO 중 최솟값이다. ISR이 min ISR보다 작으면 오르지 않는다.
+2. consumer가 HW까지만 읽는 이유는? → HW 위의 메시지는 leader가 죽으면 사라질 수 있기 때문이다.
+3. RF 3, min ISR 2, `acks=all`에서 broker 2대가 죽으면? → `acks=all` 쓰기가 `NOT_ENOUGH_REPLICAS`로 거절된다. 읽기는 기존 HW까지 된다.
+4. RF 3, min ISR 1(기본값)이면 무엇이 위험한가? → ISR이 leader 하나로 줄어도 쓰기가 성공한다. 그 leader가 죽으면 유실된다.
+5. follower가 ISR에서 빠지는 조건은? → 30초 동안 따라잡지 못하거나, 브로커가 죽어 controller 세션이 끊길 때.
 
 ---
 
-## Lesson 4 · `consumer-group`: 파티션을 나누고 위치를 저장한다
+## Lesson 5 · `consumer-rebalance`
 
-### Goal
+- **Title:** 파티션 재분배
+- **Subtitle:** 멤버가 바뀔 때 파티션을 어떻게 다시 나누나
+- **Summary:** coordinator를 찾고, classic 프로토콜이 JoinGroup/SyncGroup으로 할당하고, eager와 cooperative가 revoke하는 방식과, KIP-848 `consumer` 프로토콜이 서버 쪽에서 멤버별로 맞추는 방식을 비교한다.
+- **Critical path:** find coordinator → join → assign → member joins → revoke → reassign.
+- **Overview:** 파티션 하나는 group 안에서 consumer 하나만 읽는다. 멤버가 들어오거나 나가면 파티션을 다시 나눈다. 이것이 rebalance다. 자주 일어나면 처리가 계속 멈추는 rebalance storm이 된다. 흔한 원인은 배포 재시작, 느린 처리로 인한 `max.poll.interval.ms` 초과, heartbeat 끊김이다. 4.4.0 `KafkaConsumer`의 기본은 classic 프로토콜이다. `group.protocol=consumer`로 KIP-848 프로토콜을 켤 수 있다.
+- **Interview questions:** consumer가 파티션보다 많으면? eager와 cooperative의 차이는? `max.poll.interval.ms`와 `session.timeout.ms`의 차이는? rebalance storm은 어떻게 줄이나?
 
-group coordinator가 정해지는 방식, classic(eager/cooperative) rebalance와 KIP-848 `consumer` 프로토콜이 파티션을 다시 나누는 방식, 위치(offset)가 `__consumer_offsets`에 레코드로 저장되는 방식을 본다.
+### Panels
 
-Interview questions it answers:
-- 같은 group의 consumer 수가 파티션 수보다 많으면?
-- eager와 cooperative rebalance의 차이는? stop-the-world는 어디서 생기나?
-- KIP-848 프로토콜은 무엇이 다르고, 4.4.0에서 기본값인가?
-- offset commit은 어디에 어떤 형식으로 저장되나? 자동 커밋이 중복이나 유실을 일으키는 경우는?
-- `max.poll.interval.ms`와 `session.timeout.ms`의 차이는?
-
-### Nodes
-
-| id | Label | Kind | Illustration idea | Appears at |
-|---|---|---|---|---|
-| `c1` | Consumer A | `app` | Laptop with a worker figure | S1 |
-| `c2` | Consumer B | `app` | Laptop with a worker figure | S6 |
-| `coord` | Group coordinator (Broker 2) | `framework` | Server tower with a clipboard/roster badge | S2 |
-| `offsets` | `__consumer_offsets-17` | `storage` | Cylinder labeled with a bookmark ribbon | S2 |
-| `topic` | `orders` p0–p3 | `storage` | Four stacked log strips | S1 |
-
-Node-state panels: `coord` (table: member, epoch/generation, assigned partitions, state), `offsets` (table: key (group, topic, partition), offset, commitTimestamp).
+| Node | Panel (initial) |
+|---|---|
+| `c1` | `Consumer A`: `owned: —` |
+| `coord` | `order-svc`: `generation/epoch: 0` / `members: —` |
 
 ### Steps
 
-**S1 · mutate · `topic` · Client**
-- Title: group = 파티션을 나눠 갖는 consumer 집합
-- Subtitle: 한 파티션은 group 안의 consumer 하나만 읽는다.
-- Prose: 토픽은 전순서가 보장되는 파티션들로 나뉘고, 각 파티션은 subscribe한 group마다 consumer 하나가 읽는다. 그래서 consumer 위치는 파티션마다 정수 하나(다음에 읽을 offset)로 충분하다. consumer가 파티션보다 많으면 남는 consumer는 놀게 된다.
-- Facts: one partition → one consumer per group; position = "offset of the next message to consume"; consumers beyond partition count get no partition (follows from the rule above).
-- Event log: `Consumer A · Client · subscribe(orders) group.id=order-svc (E.G.) · —`
-- State: `p0..p3 owner: —` → `p0..p3 owner: (pending)`
-- Sources: [G1]
-
-**S2 · move · `c1 → coord` · Network**
+**S1 · move · `c1 → coord` · Network** — *critical*
+- Token: `request` · `FindCoordinator(order-svc)`
 - Title: coordinator 찾기
-- Subtitle: `abs(groupId.hashCode) % 50` 번 `__consumer_offsets` 파티션의 leader.
-- Prose: consumer는 `FindCoordinator`(API key 10)로 group coordinator를 찾는다. coordinator는 `Utils.abs(groupId.hashCode()) % offsets.topic.num.partitions` 번 `__consumer_offsets` 파티션을 맡은 브로커(그 파티션의 leader)다. 그래서 group의 membership과 offset이 한 브로커, 한 파티션에 모인다.
-- Facts: partition = `abs(groupId.hashCode()) % offsets.topic.num.partitions`; `offsets.topic.num.partitions` = 50; `offsets.topic.replication.factor` = 3; `FindCoordinator` API key = 10.
-- Event log: `Consumer A → Broker 2 · Network · FindCoordinator(order-svc) → node 2, p17 (E.G.) · —`
-- Sources: [G2], [G3]
+- Subtitle: group.id 해시로 정해지는 `__consumer_offsets` 파티션의 leader다.
+- Prose: group마다 coordinator broker가 하나 있다. `abs(groupId.hashCode()) % 50` 번 `__consumer_offsets` 파티션의 leader가 그 group의 coordinator다. membership과 커밋된 offset이 모두 이 broker에서 관리된다.
+- Facts: coordinator = leader of `__consumer_offsets` partition `abs(hash(group.id)) % 50`; `offsets.topic.num.partitions` = 50.
+- Event log: `Consumer A → Broker 2 · Network · FindCoordinator → node 2 (E.G.) · —`
+- Sources: [G1], [G2]
 
-**S3 · move · `c1 → coord` · Network**
-- Title: classic: JoinGroup
-- Subtitle: 모든 멤버가 JoinGroup으로 모이는 global barrier.
-- Prose: classic 프로토콜에서는 각 멤버가 `JoinGroup`(API key 11)을 보내고, coordinator는 멤버를 모은 뒤 한 명을 leader로 정해 응답한다. 빈 group의 첫 rebalance는 `group.initial.rebalance.delay.ms`만큼 기다려 멤버를 더 모은다. `session.timeout.ms` 동안 heartbeat가 없으면 그 멤버는 group에서 빠진다.
-- Facts: `JoinGroup` API key = 11; `session.timeout.ms` = 45000; `heartbeat.interval.ms` = 3000; `group.initial.rebalance.delay.ms` = 3000.
-- Event log: `Consumer A → Broker 2 · Network · JoinGroup(order-svc, protocols=[range,cooperative-sticky]) · —`
-- Sources: [G4], [G5], [G6]
+**S2 · move · `c1 → coord` · Network** — *critical*
+- Token: `request` · `JoinGroup(order-svc)`
+- Title: JoinGroup (classic)
+- Subtitle: 멤버가 모두 모일 때까지 기다리는 barrier.
+- Prose: classic 프로토콜에서는 멤버마다 JoinGroup을 보내고, coordinator는 모든 멤버가 올 때까지 기다린다. 빈 group의 첫 rebalance는 멤버를 더 모으려고 3초 기다린다.
+- Facts: `group.initial.rebalance.delay.ms` = 3000; `session.timeout.ms` = 45000; `heartbeat.interval.ms` = 3000.
+- Event log: `Consumer A → Broker 2 · Network · JoinGroup · —`
+- Sources: [G3], [G4]
 
-**S4 · move · `coord → c1` · Network**
-- Title: classic: leader가 할당을 계산하고 SyncGroup
-- Subtitle: classic에서는 할당이 클라이언트 쪽(group leader)에서 계산된다.
-- Prose: JoinGroup 응답의 `Leader`가 자기 `MemberId`와 같으면 그 consumer가 leader다. leader는 `partition.assignment.strategy`의 assignor로 전체 할당을 계산해 `SyncGroup`(API key 14)으로 보낸다. 나머지 멤버는 빈 SyncGroup을 보내고 자기 몫을 응답으로 받는다.
-- Facts: `partition.assignment.strategy` = `[RangeAssignor, CooperativeStickyAssignor]`; `SyncGroup` API key = 14; leader = member whose id equals `JoinGroupResponse.Leader`.
-- Event log: `Broker 2 → Consumer A · Network · SyncGroup assignment p0..p3 · —`
-- State: `A: —` → `A: p0,p1,p2,p3 (generation 1)`
-- Sources: [G5], [G7], [G8]
+**S3 · mutate · `coord` · Broker** — *critical*
+- Title: generation과 group leader
+- Subtitle: coordinator가 멤버 한 명을 leader로 정한다.
+- Prose: barrier가 끝나면 coordinator는 generation을 올리고 멤버 하나를 leader로 정한다. leader에게는 전체 멤버 목록이 간다. classic에서는 할당을 coordinator가 아니라 이 leader consumer가 계산한다.
+- Facts: generation bumps per rebalance; leader consumer computes the assignment.
+- Event log: `Broker 2 → Consumer A · Network · JoinGroupResponse gen=1 leader=A · —`
+- After: `generation/epoch: 1` / `members: A (leader)`
+- Sources: [G5]
 
-**S5 · mutate · `c1` · Client**
-- Title: eager rebalance = 전부 내려놓기
-- Subtitle: rebalance 전에 소유한 모든 파티션을 revoke한다.
-- Prose: B가 합류해 rebalance가 시작되면, EAGER 프로토콜의 consumer는 JoinGroup을 다시 보내기 전에 소유 파티션을 모두 revoke하고(`onPartitionsRevoked`) 할당을 비운다. 새 할당을 받을 때까지 group 전체가 아무것도 처리하지 않는다. 이것이 stop-the-world rebalance다.
-- Facts: EAGER: revoke all in `onJoinPrepare`; callback = `onPartitionsRevoked(all)`; processing pause = until SyncGroup completes.
-- Event log: `Consumer A · Client · EAGER revoke [p0,p1,p2,p3] · —`
-- State: `A: p0..p3` → `A: —`
-- Sources: [G9]
+**S4 · move · `c1 → coord` · Network** — *critical*
+- Token: `request` · `SyncGroup(A=[p0..p3])`
+- Title: SyncGroup으로 할당 전달
+- Subtitle: leader가 계산한 할당을 coordinator가 각 멤버에게 나눠 준다.
+- Prose: leader는 `partition.assignment.strategy`의 assignor로 할당을 계산해 SyncGroup으로 보낸다. 다른 멤버는 SyncGroup 응답으로 자기 몫을 받는다.
+- Facts: `partition.assignment.strategy` = `[RangeAssignor, CooperativeStickyAssignor]`.
+- Event log: `Consumer A → Broker 2 · Network · SyncGroup A=[p0..p3] · —`
+- Sources: [G6], [G5]
 
-**S6 · mutate · `c1` · Client**
-- Title: cooperative rebalance = 필요한 것만 내려놓기
-- Subtitle: 계속 가질 파티션은 쥔 채, 옮길 파티션만 revoke하고 한 번 더 rebalance.
-- Prose: COOPERATIVE에서는 구독에서 빠진 파티션만 먼저 revoke한다. 새 할당을 받으면 "가진 것 − 할당된 것"만 revoke하고 다시 join을 요청한다. 두 번째 rebalance에서 풀려난 파티션이 B에게 간다. A는 p0, p1을 계속 처리한다.
-- Facts: COOPERATIVE: revoked = owned − assigned; then `requestRejoin("need to revoke partitions and re-join")`; default list includes `CooperativeStickyAssignor`.
-- Event log: `Consumer A · Client · COOPERATIVE revoke [p2,p3], keep [p0,p1] (E.G.) · —`
-- State: `A: p0..p3` → `A: p0,p1 · B: (next round) p2,p3`
-- Sources: [G10], [G9]
+**S5 · mutate · `c1` · Client** — *critical*
+- Title: 할당 받음
+- Subtitle: A가 p0–p3을 소유하고 fetch를 시작한다.
+- Prose: A는 `onPartitionsAssigned`를 부르고 p0–p3을 읽기 시작한다. 이후 heartbeat가 주기적으로 나간다. consumer가 파티션보다 많으면 남는 consumer는 할당을 받지 못한다.
+- Facts: extra consumers beyond partition count stay idle; callback `onPartitionsAssigned`.
+- Event log: `Broker 2 → Consumer A · Network · SyncGroupResponse [p0..p3] · —`
+- After: `owned: p0, p1, p2, p3`
+- Sources: [G7], [G1]
 
-**S7 · move · `c2 → coord` · Network**
-- Title: KIP-848: ConsumerGroupHeartbeat
-- Subtitle: join, heartbeat, 할당 수신이 API 하나로 합쳐지고 할당은 브로커가 계산한다.
-- Prose: `group.protocol=consumer`면 consumer는 `ConsumerGroupHeartbeat`(API key 68)만 보낸다. 처음에는 `MemberEpoch=0`으로 합류하고, 나갈 때는 -1을 보낸다. heartbeat 간격, session timeout, assignor는 브로커 설정이 정한다. 4.0부터 GA지만 4.4.0 `KafkaConsumer`의 기본값은 여전히 `classic`이다.
-- Facts: API key = 68; `group.protocol` default = `classic` (5.0 plans to default to `consumer`); `group.consumer.heartbeat.interval.ms` = 5000; `group.consumer.session.timeout.ms` = 45000.
-- Event log: `Consumer B → Broker 2 · Network · ConsumerGroupHeartbeat epoch=0 topics=[orders] · ~80 B (E.G.)`
-- Sources: [G11], [G12], [G13], [G14]
+**S6 · mutate · `c1` · Client** — *critical*
+- Title: B 합류: eager는 전부 내려놓는다
+- Subtitle: rebalance 동안 group 전체가 멈춘다.
+- Prose: B가 합류하면 rebalance가 시작된다. EAGER 프로토콜의 A는 다시 join하기 전에 모든 파티션을 revoke한다(`onPartitionsRevoked`). 새 할당을 받을 때까지 group 전체가 아무것도 처리하지 않는다. 이것이 stop-the-world rebalance다.
+- Facts: EAGER revokes all partitions before rejoining; whole group pauses until SyncGroup completes.
+- Event log: `Consumer A · Client · EAGER revoke [p0..p3] · —`
+- After: `owned: —`
+- Sources: [G8]
 
-**S8 · mutate · `coord` · Broker**
-- Title: KIP-848: group epoch와 target assignment
-- Subtitle: 구독이 바뀌면 group epoch가 오르고, 서버 assignor가 target을 계산한다.
-- Prose: 멤버 구독이 바뀌면 coordinator가 group epoch를 올리고, 서버 쪽 assignor(기본 `uniform`, 그 외 `range`)로 새 target assignment를 계산한다. 이 과정에 global barrier는 없다. 각 멤버는 자기 heartbeat 응답으로 자기 몫만 받는다. 클라이언트 쪽 assignor는 지원하지 않는다.
-- Facts: `group.consumer.assignors` default = `[uniform, range]` (first = default); client `group.remote.assignor` overrides; client assignors not supported; `partition.assignment.strategy`/`session.timeout.ms`/`heartbeat.interval.ms` unusable with `consumer` protocol.
-- Event log: `Broker 2 · Broker · group epoch 5 → 6, target A=[p0,p1] B=[p2,p3] (E.G.) · —`
-- State: `group epoch 5, target A=[p0..p3]` → `group epoch 6, target A=[p0,p1], B=[p2,p3]`
-- Sources: [G12], [G15], [G16]
+**S7 · mutate · `c1` · Client** — *critical*
+- Title: cooperative는 옮길 것만 내려놓는다
+- Subtitle: 가질 파티션은 쥔 채, 옮길 파티션만 revoke하고 한 번 더 rebalance한다.
+- Prose: (S6과 비교) COOPERATIVE에서 A는 새 할당을 받은 뒤 "가진 것 − 할당된 것"만 revoke한다. 그러고 다시 join을 요청한다. 두 번째 rebalance에서 p2, p3이 B에게 간다. 그동안 A는 p0, p1을 계속 처리한다.
+- Facts: revoked = owned − assigned; then a second rebalance; default strategy list includes `CooperativeStickyAssignor`.
+- Event log: `Consumer A · Client · COOPERATIVE revoke [p2, p3], keep [p0, p1] (E.G.) · —`
+- Before: `owned: p0, p1, p2, p3`
+- After: `owned: p0, p1`
+- Sources: [G9], [G8]
 
-**S9 · mutate · `coord` · Broker**
-- Title: KIP-848: 멤버별 reconciliation
-- Subtitle: STABLE → UNREVOKED_PARTITIONS → (UNRELEASED_PARTITIONS) → STABLE.
-- Prose: A는 먼저 p2, p3을 revoke하라는 응답을 받고 `UNREVOKED_PARTITIONS` 상태가 된다. A가 heartbeat의 owned 목록에서 p2, p3을 빼면 다음 epoch로 넘어간다. B는 p2, p3이 풀릴 때까지 `UNRELEASED_PARTITIONS`에서 기다렸다가 받는다. 멤버마다 따로 진행하므로 A는 p0, p1 처리를 멈추지 않는다.
-- Facts: member states = `STABLE(0)`, `UNREVOKED_PARTITIONS(1)`, `UNRELEASED_PARTITIONS(2)`; revoked = no longer listed in `TopicPartitions` of heartbeat; fully incremental (no global barrier).
-- Event log: `Broker 2 → Consumer A · Network · HeartbeatResponse revoke [p2,p3] · —`
-- State: `A STABLE e5 [p0..p3]; B — ` → `A STABLE e6 [p0,p1]; B STABLE e6 [p2,p3]`
-- Sources: [G17], [G18], [G11]
+**S8 · move · `c2 → coord` · Network** — *side*
+- Token: `request` · `ConsumerGroupHeartbeat epoch=0`
+- Title: KIP-848 프로토콜: heartbeat 하나로
+- Subtitle: `group.protocol=consumer`면 join, heartbeat, 할당 수신을 한 API가 맡는다.
+- Prose: `consumer` 프로토콜에서는 consumer가 `ConsumerGroupHeartbeat`만 보낸다. `MemberEpoch=0`이면 합류, -1이면 떠남이다. 할당은 브로커의 assignor가 계산한다. heartbeat 간격과 session timeout도 브로커가 정한다.
+- Facts: `group.protocol` default = `classic`; server assignor default = `uniform`; `group.consumer.session.timeout.ms` = 45000.
+- Event log: `Consumer B → Broker 2 · Network · ConsumerGroupHeartbeat epoch=0 · ~80 B (E.G.)`
+- Decoder: **ConsumerGroupHeartbeatRequest** (`wire: yes`)
+- Sources: [G10], [G11], [G12]
 
-**S10 · move · `c1 → coord` · Network**
-- Title: offset commit
-- Subtitle: `OffsetCommit`(API key 8): 다음에 읽을 offset을 커밋한다.
-- Prose: consumer는 처리한 위치를 `OffsetCommit`으로 coordinator에 보낸다. `GenerationIdOrMemberEpoch`는 classic이면 generation, consumer 프로토콜이면 member epoch다. 오래된 멤버의 커밋은 이 값으로 걸러진다. 기본은 `enable.auto.commit=true`, 5초 간격이다.
-- Facts: `OffsetCommit` API key = 8, versions 2–10 (v10 uses TopicId); `enable.auto.commit` = true; `auto.commit.interval.ms` = 5000; `offset.metadata.max.bytes` = 4096.
-- Event log: `Consumer A → Broker 2 · Network · OffsetCommit orders-0=1237 (E.G.) · ~70 B (E.G.)`
-- Sources: [G19], [G6], [G3]
+**S9 · mutate · `coord` · Broker** — *side*
+- Title: KIP-848: 멤버마다 따로 맞춘다
+- Subtitle: global barrier 없이 A는 p2, p3만 내려놓고, B는 풀리는 대로 받는다.
+- Prose: B가 합류하면 coordinator가 group epoch를 올리고 새 target 할당(A=[p0,p1], B=[p2,p3])을 계산한다. A는 heartbeat 응답으로 p2, p3 revoke를 받는다. A가 owned 목록에서 그것들을 빼면, B가 다음 heartbeat에서 받는다. 이 과정에 global synchronization barrier가 없어 A는 멈추지 않는다.
+- Facts: group epoch bumps on membership change; member states `STABLE`, `UNREVOKED_PARTITIONS`, `UNRELEASED_PARTITIONS`; no global synchronization barrier.
+- Event log: `Broker 2 → Consumer A · Network · HeartbeatResponse revoke [p2, p3] · —`
+- After: `generation/epoch: group 6 (E.G.)` / `members: A [p0, p1] STABLE · B [p2, p3] STABLE`
+- Sources: [G11], [G13], [G14]
 
-**S11 · mutate · `offsets` · Storage**
-- Title: `__consumer_offsets`에 레코드로 기록
-- Subtitle: key = (group, topic, partition), value = offset·leaderEpoch·metadata·commitTimestamp.
-- Prose: coordinator는 커밋을 `__consumer_offsets-17`에 레코드 하나로 쓴다. key는 타입 접두어 1(OffsetCommit) + group/topic/partition이고, value는 버전 4로 직렬화된다. 이 토픽은 `cleanup.policy=compact`라서 key마다 마지막 커밋만 남는다. 커밋 응답은 offsets 토픽의 모든 replica가 받거나 `offsets.commit.timeout.ms`가 지날 때까지 미뤄진다.
-- Facts: key type prefix = 1 (`OffsetCommitKey` apiKey); value version written = 4 (1 only if expireTimestamp is set); `__consumer_offsets` `cleanup.policy` = `compact`; `offsets.commit.timeout.ms` = 5000; `offsets.retention.minutes` = 10080.
-- Event log: `Broker 2 → __consumer_offsets-17 · Storage · OffsetCommit record · ~60 B (E.G.)`
-- State: `(order-svc, orders, 0) → 1100` → `→ 1237 (E.G.)`
-- Decoder: **OffsetCommitKey / OffsetCommitValue v4** (see Decoder records)
-- Sources: [G20], [G21], [G22], [G3], [G26]
-
-**S12 · mutate · `c1` · Client**
-- Title: 커밋 시점이 전달 의미를 정한다
-- Subtitle: 처리 후 커밋 = at-least-once, 커밋 후 처리 = at-most-once.
-- Prose: 읽고 커밋한 뒤 처리하다 죽으면, 새 consumer는 커밋 위치부터 읽으므로 일부 메시지가 처리되지 않는다(at-most-once). 읽고 처리한 뒤 커밋 전에 죽으면 같은 메시지를 다시 처리한다(at-least-once). Kafka의 기본은 at-least-once다. 외부 시스템에 대한 exactly-once는 offset을 출력과 같은 곳에 저장해야 한다.
-- Facts: commit-then-process = at-most-once; process-then-commit = at-least-once; default guarantee = at-least-once.
-- Event log: `Consumer A · Client · crash after process, before commit → reprocess 1237..1240 (E.G.) · —`
-- Sources: [G23]
-
-**S13 · mutate · `coord` · Broker**
+**S10 · mutate · `coord` · Broker** — *side*
 - Title: `max.poll.interval.ms` 초과
-- Subtitle: heartbeat는 살아 있어도, poll이 멈추면 group에서 빠진다.
-- Prose: `poll()` 사이 간격이 `max.poll.interval.ms`를 넘으면, consumer는 처리가 멈춘 것으로 보고 group을 떠난다. 그러면 rebalance가 일어난다. heartbeat는 따로 돌기 때문에, `session.timeout.ms`는 프로세스 장애를 잡고 `max.poll.interval.ms`는 처리 정지를 잡는다. `max.poll.records`를 줄이면 poll 간격이 짧아진다.
-- Facts: `max.poll.interval.ms` = 300000; `max.poll.records` = 500; poll timeout → "consumer is considered failed and the group will rebalance"; static member (`group.instance.id`) hitting it → partitions move only after the session timeout.
-- Event log: `Broker 2 · Broker · member A left (poll timeout) → rebalance (E.G.) · —`
-- State: `A STABLE [p0,p1]` → `A removed; B target [p0..p3]`
-- Sources: [G6], [G25]
+- Subtitle: heartbeat가 살아 있어도 poll이 멈추면 실패로 본다.
+- Prose: 레코드 처리가 느려 `poll()` 간격이 `max.poll.interval.ms`(5분)를 넘으면, consumer는 실패로 간주되고 rebalance가 일어난다. `session.timeout.ms`는 heartbeat로 프로세스 생존을 본다. `max.poll.interval.ms`는 처리 진행을 본다. `max.poll.records`를 줄이거나 처리를 빠르게 하는 것이 해법이다.
+- Facts: `max.poll.interval.ms` = 300000; `max.poll.records` = 500; poll timeout → member removed, rebalance.
+- Event log: `Broker 2 · Broker · member A left (poll timeout) (E.G.) · —`
+- After: `generation/epoch: group 7 (E.G.)` / `members: B [p0..p3] STABLE (E.G.)`
+- Sources: [G4], [G15]
 
-**S14 · mutate · `c1` · Client**
+**S11 · mutate · `c1` · Client** — *side*
 - Title: static membership
-- Subtitle: `group.instance.id`로 재시작해도 rebalance가 일어나지 않게 한다.
-- Prose: 보통 멤버 id는 재시작하면 바뀌어 배포 때마다 rebalance가 난다. `group.instance.id`를 인스턴스마다 고유하게 주면 멤버십이 유지되어 rebalance가 일어나지 않는다. 같은 id가 중복되면 브로커가 `FencedInstanceIdException`으로 한쪽을 종료시킨다.
-- Facts: config = `group.instance.id`; duplicate → `FencedInstanceIdException`; consumer protocol heartbeat: `MemberEpoch=-2` = static member will rejoin.
+- Subtitle: `group.instance.id`로 배포 재시작 때 rebalance를 막는다.
+- Prose: 보통 consumer를 재시작하면 새 멤버로 들어와 rebalance가 난다. `group.instance.id`를 인스턴스마다 고유하게 주면, session timeout 안에 돌아온 인스턴스는 같은 멤버로 인정되어 rebalance가 없다. 같은 id를 두 인스턴스가 쓰면 한쪽이 `FencedInstanceIdException`으로 종료된다.
+- Facts: config = `group.instance.id`; rejoin within session timeout → no rebalance; duplicate id → `FencedInstanceIdException`.
 - Event log: `Consumer A · Client · restart with group.instance.id=a-1 (E.G.) · no rebalance`
-- Sources: [G24], [G11]
+- Before: `owned: p0, p1` (before restart)
+- After: `owned: p0, p1` (same, after restart)
+- Sources: [G16], [G15]
 
-### Decoder records
+**Replay:** FindCoordinator → JoinGroup → leader computes → SyncGroup → A owns p0–p3 → B joins → A revokes (eager: all, cooperative: p2, p3) → B gets p2, p3.
 
-1. **OffsetCommitKey + OffsetCommitValue v4** (S11). See "Decoder: offset commit record".
-2. **ConsumerGroupHeartbeatRequest v1** (S7): field list from the schema, all fields flexible (`0+`). Byte layout not computed; show the field table only (each `string` is COMPACT_STRING, arrays COMPACT_ARRAY, trailing tagged-field count).
+### Decoder records used
+
+| Record | Step | wire |
+|---|---|---|
+| ConsumerGroupHeartbeatRequest | S8 | yes |
 
 ### Sources
 
 | id | What | URL |
 |---|---|---|
-| G1 | Consumer position, one consumer per partition per group | `K/docs/design/design.md#L149-L159` |
-| G2 | Coordinator partition hash | `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/GroupCoordinatorService.java#L463` |
-| G3 | Group coordinator defaults | `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/GroupCoordinatorConfig.java#L114-L228` |
-| G4 | `JoinGroup`/`SyncGroup`/`FindCoordinator` API keys | `K/clients/src/main/resources/common/message/JoinGroupRequest.json#L17`, `.../SyncGroupRequest.json#L17`, `.../FindCoordinatorRequest.json#L17` |
-| G5 | JoinGroup response leader → `onLeaderElected` | `K/clients/src/main/java/org/apache/kafka/clients/consumer/internals/AbstractCoordinator.java#L678-L681` and `#L772`; `K/clients/src/main/resources/common/message/JoinGroupResponse.json#L52-L57` |
-| G6 | Consumer defaults | `K/clients/src/main/java/org/apache/kafka/clients/consumer/ConsumerConfig.java#L467-L497` and `#L652-L692`, `#L100`, `#L121` |
-| G7 | Assignment computed by leader | `K/clients/src/main/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinator.java#L655` |
-| G8 | `partition.assignment.strategy` default | `K/clients/src/main/java/org/apache/kafka/clients/consumer/ConsumerConfig.java#L477-L480` |
-| G9 | EAGER vs COOPERATIVE in `onJoinPrepare` | `K/clients/src/main/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinator.java#L826-L850` |
-| G10 | COOPERATIVE revoke owned − assigned, rejoin | `K/clients/src/main/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinator.java#L418-L452` |
-| G11 | `ConsumerGroupHeartbeatRequest` | `K/clients/src/main/resources/common/message/ConsumerGroupHeartbeatRequest.json#L16-L51` |
-| G12 | Consumer rebalance protocol doc (GA 4.0, server configs, assignors, limits, timeline) | `K/docs/operations/consumer-rebalance-protocol.md#L29-L105` |
-| G13 | `group.protocol` default `classic` | `K/clients/src/main/java/org/apache/kafka/clients/consumer/ConsumerConfig.java#L121` |
-| G14 | Server heartbeat/session defaults | `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/GroupCoordinatorConfig.java#L189-L205` |
-| G15 | Built-in assignors `uniform`, `range` | `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/GroupCoordinatorConfig.java#L219-L230` |
-| G16 | Group epoch bump on subscription change | `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/GroupMetadataManager.java#L2821-L2823` |
-| G17 | `CurrentAssignmentBuilder.build` state machine | `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/modern/consumer/CurrentAssignmentBuilder.java#L186-L240` |
-| G18 | Member states | `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/modern/MemberState.java#L32-L45` |
-| G19 | `OffsetCommitRequest` | `K/clients/src/main/resources/common/message/OffsetCommitRequest.json#L16-L74` |
-| G20 | `OffsetCommitKey`, `OffsetCommitValue` | `K/group-coordinator/src/main/resources/common/message/OffsetCommitKey.json#L16-L30`, `K/group-coordinator/src/main/resources/common/message/OffsetCommitValue.json#L16-L39` |
-| G21 | Value version 4 (or 1) chosen | `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/GroupCoordinatorRecordHelpers.java#L470-L503` |
-| G22 | Key type-prefix and value version-prefix serialization | `K/coordinator-common/src/main/java/org/apache/kafka/coordinator/common/runtime/CoordinatorRecordSerde.java#L44-L62`, `K/clients/src/main/java/org/apache/kafka/common/protocol/MessageUtil.java#L232-L267` |
-| G23 | Delivery semantics on the consumer side | `K/docs/design/design.md#L197-L207` |
-| G24 | Static membership | `K/docs/design/design.md#L167-L177` |
-| G26 | Offsets topic configs (`compact`); `offsets.commit.timeout.ms` doc | `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/GroupCoordinatorService.java#L2957-L2962`, `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/GroupCoordinatorConfig.java#L115-L116` |
-| G25 | `max.poll.interval.ms` and `session.timeout.ms` docs | `K/clients/src/main/java/org/apache/kafka/clients/CommonClientConfigs.java#L203-L209` and `#L225-L229` |
+| G1 | One consumer per partition per group | `K/docs/design/design.md#L149-L159` |
+| G2 | Coordinator partition; offsets topic partitions | `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/GroupCoordinatorService.java#L463`, `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/GroupCoordinatorConfig.java#L119` |
+| G3 | Initial rebalance delay | `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/GroupCoordinatorConfig.java#L178` |
+| G4 | Consumer defaults | `K/clients/src/main/java/org/apache/kafka/clients/consumer/ConsumerConfig.java#L467-L480`, `#L652-L661`, `#L100` |
+| G5 | JoinGroup leader → leader computes assignment | `K/clients/src/main/java/org/apache/kafka/clients/consumer/internals/AbstractCoordinator.java#L678-L681`, `#L772`; `K/clients/src/main/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinator.java#L655` |
+| G6 | `partition.assignment.strategy` default | `K/clients/src/main/java/org/apache/kafka/clients/consumer/ConsumerConfig.java#L477-L480` |
+| G7 | Assignment applied | `K/clients/src/main/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinator.java#L418-L452` |
+| G8 | EAGER vs COOPERATIVE in `onJoinPrepare` | `K/clients/src/main/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinator.java#L826-L850` |
+| G9 | COOPERATIVE: revoke owned − assigned, rejoin | `K/clients/src/main/java/org/apache/kafka/clients/consumer/internals/ConsumerCoordinator.java#L418-L452` |
+| G10 | `ConsumerGroupHeartbeatRequest` | `K/clients/src/main/resources/common/message/ConsumerGroupHeartbeatRequest.json#L16-L51` |
+| G11 | Consumer rebalance protocol doc (no global barrier, server-side assignors, default `classic`); secondary: KIP-848 | `K/docs/operations/consumer-rebalance-protocol.md#L29-L66`; `https://cwiki.apache.org/confluence/x/HhD1D` |
+| G12 | `group.protocol` default; server session default | `K/clients/src/main/java/org/apache/kafka/clients/consumer/ConsumerConfig.java#L121`, `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/GroupCoordinatorConfig.java#L189` |
+| G13 | Reconciliation state machine | `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/modern/consumer/CurrentAssignmentBuilder.java#L186-L240`, `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/modern/MemberState.java#L32-L45` |
+| G14 | Group epoch bump | `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/GroupMetadataManager.java#L2821-L2823` |
+| G15 | `max.poll.interval.ms` and `session.timeout.ms` docs | `K/clients/src/main/java/org/apache/kafka/clients/CommonClientConfigs.java#L203-L209`, `#L225-L229` |
+| G16 | Static membership | `K/docs/design/design.md#L167-L177` |
 
 ### Self-check
 
-1. group coordinator는 어떻게 정해지나? → `abs(groupId.hashCode()) % 50` 번 `__consumer_offsets` 파티션의 leader 브로커.
-2. eager와 cooperative의 차이는? → eager는 rebalance 전에 전부 revoke한다. cooperative는 옮길 파티션만 revoke하고 한 번 더 rebalance한다.
-3. KIP-848 프로토콜에서 할당은 누가 계산하나? 4.4.0 기본 프로토콜은? → 브로커(서버 assignor, 기본 `uniform`). `KafkaConsumer`의 기본은 아직 `classic`이고, `group.protocol=consumer`로 켠다.
-4. KIP-848 reconciliation의 멤버 상태 세 가지는? → `STABLE`, `UNREVOKED_PARTITIONS`, `UNRELEASED_PARTITIONS`.
-5. 커밋된 offset은 어떤 레코드인가? → key (type 1, group, topic, partition), value v4 (offset, leaderEpoch, metadata, commitTimestamp, tagged topicId). compacted 토픽 `__consumer_offsets`에 저장된다.
-6. at-least-once가 되는 커밋 순서는? → 처리한 뒤 커밋.
-7. `max.poll.interval.ms` 기본값과 초과 시 동작은? → 300000 ms. 멤버가 group을 떠나 rebalance가 일어난다.
+1. group coordinator는 어떻게 정해지나? → `abs(hash(group.id)) % 50` 번 `__consumer_offsets` 파티션의 leader.
+2. classic에서 할당은 누가 계산하나? → group leader consumer. 계산한 할당을 SyncGroup으로 보낸다.
+3. eager와 cooperative의 차이는? → eager는 전부 revoke해서 group 전체가 멈춘다. cooperative는 옮길 파티션만 revoke하고 한 번 더 rebalance한다.
+4. `max.poll.interval.ms`와 `session.timeout.ms`의 차이는? → 처리 정지(poll 간격)를 보느냐, 프로세스 장애(heartbeat)를 보느냐.
+5. 배포 때 rebalance를 줄이는 방법 두 가지는? → static membership(`group.instance.id`), cooperative assignor(또는 `consumer` 프로토콜).
 
 ---
 
-## Lesson 5 · `transactions`: consume-process-produce를 정확히 한 번
+## Lesson 6 · `offset-commit`
 
-### Goal
+- **Title:** offset 커밋과 consumer lag
+- **Subtitle:** 위치를 어디에 저장하고, 얼마나 뒤처졌는지 어떻게 재나
+- **Summary:** consumer가 처리 위치를 `OffsetCommit`으로 보내 `__consumer_offsets`에 레코드로 남기고, 커밋 순서가 전달 의미를 정하고, lag을 두 방식으로 재는 과정을 본다.
+- **Critical path:** poll → process → `OffsetCommit` → `__consumer_offsets` → lag = end − committed.
+- **Overview:** consumer 위치는 파티션마다 "다음에 읽을 offset" 하나다. group coordinator가 이 값을 compacted 내부 토픽 `__consumer_offsets`에 저장한다. 처리한 뒤 커밋하면 at-least-once, 커밋한 뒤 처리하면 at-most-once다. lag은 운영 도구로는 end offset − committed로, consumer metric으로는 HW − position으로 잰다.
+- **Interview questions:** offset은 어디에 저장되나? 자동 커밋이 중복이나 유실을 일으키는 경우는? lag은 무엇이고 어떻게 재나? 오래 멈춘 group이 다시 켜지면 어디서 시작하나?
 
-`transactional.id`를 가진 producer가 여러 파티션 쓰기와 consumer offset 커밋을 원자적으로 묶고, `read_committed` consumer가 abort된 레코드를 건너뛰는 과정을 본다.
+### Panels
 
-Interview questions it answers:
-- Kafka의 exactly-once는 정확히 어디서 어디까지인가?
-- transaction coordinator는 무엇을 저장하고, commit은 어떤 단계로 진행되나?
-- zombie producer는 어떻게 fencing되나? KIP-890(transaction v2)은 무엇을 바꿨나?
-- `read_committed` consumer는 무엇을 기준으로 읽기를 멈추나?
-
-### Nodes
-
-| id | Label | Kind | Illustration idea | Appears at |
-|---|---|---|---|---|
-| `app` | Copier app | `app` | Laptop with consume→produce arrows | S1 |
-| `txcoord` | Transaction coordinator (Broker 3) | `framework` | Server tower with a ledger and a gavel | S2 |
-| `txlog` | `__transaction_state-k` | `storage` | Cylinder with a ledger icon | S3 |
-| `out0` | `payments-0` leader | `storage` | Log strip | S5 |
-| `out1` | `payments-1` leader | `storage` | Log strip | S5 |
-| `gcoord` | Group coordinator | `framework` | Server tower with roster badge (same art as lesson 4) | S7 |
-| `rc` | read_committed consumer | `client` | Laptop with a filter icon | S11 |
-
-Node-state panels: `txcoord` (table: transactionalId, producerId, epoch, state, partitions), `out0` (list of batches with txn flag and markers), `rc` (table: LSO, aborted list).
+| Node | Panel (initial) |
+|---|---|
+| `c1` | `orders-0`: `position: 1237 (E.G.)` / `committed: 1237 (E.G.)` |
+| `offsets` | `(order-svc, orders, 0)`: `1237 (E.G.)` |
+| `tool` | `describe order-svc`: `—` |
 
 ### Steps
 
-**S1 · mutate · `app` · Client**
-- Title: 세 가지 조건
-- Subtitle: 단독 소유 파티션, 원자적 쓰기+offset, consumer 하나당 producer 하나.
-- Prose: Kafka에서 transactional한 것은 producer뿐이다. 다만 producer가 consumer 위치(committed offset)도 transaction 안에서 갱신할 수 있다. exactly-once 처리에는 세 가지가 필요하다. 파티션 할당으로 group 안에서 혼자 처리하기, 출력과 offset을 transaction으로 원자적으로 쓰기, consumer 인스턴스마다 producer 하나 두기다.
-- Facts: consumer config = `isolation.level=read_committed`, `enable.auto.commit=false`; producer config = `transactional.id`; `transaction.timeout.ms` = 60000.
-- Event log: `Copier · Client · new KafkaProducer(transactional.id=copier-0) (E.G.) · —`
-- Sources: [T1], [T2]
+**S1 · mutate · `c1` · Client** — *critical*
+- Title: poll과 position
+- Subtitle: position은 다음에 읽을 offset이다. 커밋하기 전에는 메모리에만 있다.
+- Prose: `poll()`이 1237–1239를 돌려주면 position은 1240이 된다. 이 값은 아직 메모리에만 있다. 커밋해야 재시작이나 다른 멤버가 이어받을 때 그 위치부터 읽는다. 커밋할 값은 마지막 처리 offset + 1이다.
+- Facts: committed offset = next offset to read; `max.poll.records` = 500.
+- Event log: `Consumer A · Client · poll → 1237–1239 (E.G.) · 3 records (E.G.)`
+- After: `position: 1240 (E.G.)` / `committed: 1237 (E.G.)`
+- Sources: [O1], [O2]
 
-**S2 · move · `app → txcoord` · Network**
-- Title: FindCoordinator(TRANSACTION)
-- Subtitle: `abs(transactionalId.hashCode) % 50` 번 `__transaction_state` 파티션의 leader.
-- Prose: transactional producer는 `FindCoordinator`를 TRANSACTION 타입으로 보낸다. coordinator는 `Utils.abs(transactionalId.hashCode) % transaction.state.log.num.partitions` 번 `__transaction_state` 파티션의 leader다. group coordinator와 같은 방식으로 정해진다.
-- Facts: partition = `abs(transactionalId.hashCode) % 50`; `transaction.state.log.num.partitions` = 50; `transaction.state.log.replication.factor` = 3; `transaction.state.log.min.isr` = 2.
-- Event log: `Copier → Broker 3 · Network · FindCoordinator(TRANSACTION, copier-0) → node 3 (E.G.) · —`
-- Sources: [T3], [T4], [T5]
+**S2 · move · `c1 → coord` · Network** — *critical*
+- Token: `request` · `OffsetCommit orders-0=1240`
+- Title: OffsetCommit
+- Subtitle: 자동 커밋은 기본으로 켜져 있고 5초 간격이다.
+- Prose: consumer는 position을 `OffsetCommit`으로 coordinator에 보낸다. 기본은 자동 커밋(`enable.auto.commit=true`)이고 5초마다 다음 `poll()` 때 커밋한다. 수동 커밋은 `commitSync`/`commitAsync`다. rebalance로 쫓겨난 멤버의 커밋은 generation(또는 member epoch)이 맞지 않아 거절된다.
+- Facts: `enable.auto.commit` = true; `auto.commit.interval.ms` = 5000; stale generation/epoch → commit rejected.
+- Event log: `Consumer A → Broker 2 · Network · OffsetCommit orders-0=1240 (E.G.) · ~70 B (E.G.)`
+- Sources: [O3], [O2]
 
-**S3 · mutate · `txcoord` · Broker**
-- Title: InitProducerId와 epoch fencing
+**S3 · mutate · `offsets` · Storage** — *critical*
+- Title: `__consumer_offsets`에 레코드로 저장
+- Subtitle: key = (group, topic, partition), value = offset.
+- Prose: coordinator는 커밋을 `__consumer_offsets`에 레코드로 쓴다. 이 토픽은 compacted라 key마다 마지막 커밋만 남는다(lesson 3). 쓰기는 offsets 토픽 replica가 모두 받거나 `offsets.commit.timeout.ms`가 지나야 응답한다.
+- Facts: key = (group, topic, partition); `cleanup.policy=compact`; `offsets.topic.replication.factor` = 3; `offsets.commit.timeout.ms` = 5000.
+- Event log: `Broker 2 → __consumer_offsets-17 · Storage · OffsetCommit record · ~60 B (E.G.)`
+- After: `(order-svc, orders, 0): 1240 (E.G.)`
+- Decoder: **Offset commit record** (`wire: no`)
+- Sources: [O4], [O5], [O6]
+
+**S4 · mutate · `c1` · Client** — *side*
+- Title: 커밋 순서가 전달 의미를 정한다
+- Subtitle: 처리 후 커밋은 중복, 커밋 후 처리는 유실 위험이 있다.
+- Prose: A가 1240–1244를 처리했지만 커밋 전에 죽었다. 이어받은 consumer는 1240부터 다시 읽으므로 1240–1244를 두 번 처리한다(at-least-once). 처리 로직은 멱등해야 한다. 반대로 커밋을 먼저 하고 처리하다 죽으면 그 메시지를 건너뛴다(at-most-once).
+- Facts: process → commit = at-least-once (duplicates); commit → process = at-most-once (loss); Kafka default = at-least-once.
+- Event log: `Consumer A · Client · crash before commit → restart at 1240 (E.G.) · —`
+- Before: `position: 1245 (E.G.)` / `committed: 1240 (E.G.)`
+- After: `position: 1240 (reset to committed, E.G.)` / `committed: 1240 (E.G.)`
+- Sources: [O7]
+
+**S5 · move · `tool → coord` · Network** — *critical*
+- Token: `request` · `OffsetFetch(order-svc)`
+- Title: 운영 도구: committed offset 조회
+- Subtitle: `kafka-consumer-groups.sh --describe`
+- Prose: `kafka-consumer-groups.sh --describe --group order-svc`는 coordinator에 group의 committed offset을 묻는다. 결과의 `CURRENT-OFFSET` 열이다. consumer 메모리의 position이 아니라 커밋된 값이다.
+- Facts: command = `kafka-consumer-groups.sh --bootstrap-server … --describe --group …`; `CURRENT-OFFSET` = committed offset.
+- Event log: `Tool → Broker 2 · Network · OffsetFetch(order-svc) · —`
+- Sources: [O8], [O9]
+
+**S6 · move · `tool → b1` · Network** — *critical*
+- Token: `request` · `ListOffsets(latest)`
+- Title: 운영 도구: 파티션 끝 조회
+- Subtitle: `LOG-END-OFFSET` 열은 브로커가 HW로 답한 latest offset이다.
+- Prose: 도구는 파티션의 latest offset을 leader에게 묻는다. 브로커는 consumer가 읽을 수 있는 끝, 즉 high watermark로 답한다. 그래서 `LOG-END-OFFSET`은 이름과 달리 raw LEO가 아니다.
+- Facts: request = `ListOffsets` (latest); answer = HW (read_uncommitted) or LSO (read_committed).
+- Event log: `Tool → Broker 1 · Network · ListOffsets orders-0 latest → 1300 (E.G.) · —`
+- Sources: [O10], [O11]
+
+**S7 · mutate · `tool` · Client** — *critical*
+- Title: LAG = LOG-END-OFFSET − CURRENT-OFFSET
+- Subtitle: 도구의 lag은 커밋 기준이다.
+- Prose: 도구는 파티션마다 `LAG = LOG-END-OFFSET − CURRENT-OFFSET`을 출력한다. 커밋 기준이라 처리했지만 아직 커밋하지 않은 레코드도 lag에 들어간다. lag이 계속 늘면 consumer가 생산 속도를 못 따라가는 것이다. consumer를 늘리거나(파티션 수까지) 처리를 빠르게 해야 한다.
+- Facts: columns = `TOPIC PARTITION CURRENT-OFFSET LOG-END-OFFSET LAG CONSUMER-ID HOST CLIENT-ID`; no commit → LAG empty; scale-out limit = partition count.
+- Event log: `Tool · Client · describe order-svc · 1 row (E.G.)`
+- After: `orders 0 · CURRENT-OFFSET 1240 · LOG-END-OFFSET 1300 · LAG 60 · consumer-A (E.G.)`
+- Sources: [O8], [O12]
+
+**S8 · mutate · `c1` · Client** — *side*
+- Title: `records-lag`: consumer 쪽 lag
+- Subtitle: HW − position. consumer가 직접 metric으로 낸다.
+- Prose: consumer는 fetch 응답의 HW로 `HW − position`을 계산해 `records-lag`, `records-lag-max` metric으로 낸다. 도구의 LAG보다 즉각적이다. 커밋 지연은 포함하지 않는다. 브로커가 아니라 consumer가 발행하므로 consumer 쪽 모니터링에 연결해야 한다.
+- Facts: lag = HW − position (LSO − position for `read_committed`); metric group `consumer-fetch-manager-metrics`; published by the consumer.
+- Event log: `Consumer A · Client · records-lag orders-0 = 60 (E.G.) · —`
+- After: `position: 1240 (E.G.)` / `committed: 1240 (E.G.)` / `records-lag: 60 (HW 1300 − 1240, E.G.)`
+- Sources: [O13], [O14], [O15]
+
+**S9 · mutate · `offsets` · Storage** — *side*
+- Title: 빈 group의 offset은 7일 뒤 사라진다
+- Subtitle: 다시 켜면 `auto.offset.reset`에 따라 시작한다. 기본은 `latest`다.
+- Prose: group의 consumer가 모두 떠난 뒤 `offsets.retention.minutes`(7일)가 지나면, committed offset이 만료되어 지워진다. 그 뒤 group을 다시 켜면 커밋이 없으므로 `auto.offset.reset`을 따른다. 기본값 `latest`면 그사이 쌓인 메시지를 건너뛴다.
+- Facts: `offsets.retention.minutes` = 10080, counted after the group becomes empty; `auto.offset.reset` = `latest`.
+- Event log: `Broker 2 → __consumer_offsets · Storage · expire (order-svc, orders, 0) (E.G.) · —`
+- After: `(order-svc, orders, 0): — (expired, E.G.)`
+- Sources: [O16], [O2]
+
+**Replay:** poll → process → OffsetCommit → `__consumer_offsets` record → tool reads committed and end offsets → LAG.
+
+### Decoder records used
+
+| Record | Step | wire |
+|---|---|---|
+| Offset commit record | S3 | no |
+
+### Sources
+
+| id | What | URL |
+|---|---|---|
+| O1 | Consumer position | `K/docs/design/design.md#L149-L159` |
+| O2 | Consumer defaults (`max.poll.records`, auto commit, `auto.offset.reset`) | `K/clients/src/main/java/org/apache/kafka/clients/consumer/ConsumerConfig.java#L100`, `#L489-L497`, `#L575-L578` |
+| O3 | `OffsetCommitRequest` (`GenerationIdOrMemberEpoch`) | `K/clients/src/main/resources/common/message/OffsetCommitRequest.json#L16-L74` |
+| O4 | `OffsetCommitKey`, `OffsetCommitValue` | `K/group-coordinator/src/main/resources/common/message/OffsetCommitKey.json#L16-L30`, `K/group-coordinator/src/main/resources/common/message/OffsetCommitValue.json#L16-L39` |
+| O5 | Offsets topic `cleanup.policy=compact` | `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/GroupCoordinatorService.java#L2957-L2962` |
+| O6 | Coordinator defaults; commit timeout doc | `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/GroupCoordinatorConfig.java#L114-L128` |
+| O7 | Delivery semantics | `K/docs/design/design.md#L197-L207` |
+| O8 | Checking consumer position (tool output) | `K/docs/operations/basic-kafka-operations.md#L152-L162` |
+| O9 | `OffsetFetch` request | `K/clients/src/main/resources/common/message/OffsetFetchRequest.json#L16-L30` |
+| O10 | Tool asks `OffsetSpec.latest()` | `K/tools/src/main/java/org/apache/kafka/tools/GroupOffsetsResetter.java#L222-L224`, `K/clients/src/main/java/org/apache/kafka/clients/admin/ListOffsetsOptions.java#L34` |
+| O11 | Latest = HW or LSO | `K/core/src/main/scala/kafka/cluster/Partition.scala#L1441-L1443`, `#L1471-L1473` |
+| O12 | Tool LAG computation | `K/tools/src/main/java/org/apache/kafka/tools/consumer/group/ConsumerGroupCommand.java#L579-L580` |
+| O13 | `SubscriptionState.partitionLag` | `K/clients/src/main/java/org/apache/kafka/clients/consumer/internals/SubscriptionState.java#L651-L660` |
+| O14 | `records-lag` metrics | `K/clients/src/main/java/org/apache/kafka/clients/consumer/internals/FetchMetricsRegistry.java#L102`, `#L135-L140` |
+| O15 | Lag published by consumer | `K/docs/operations/monitoring.md#L759-L763` |
+| O16 | `offsets.retention.minutes` doc and default | `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/GroupCoordinatorConfig.java#L150-L157` |
+
+### Self-check
+
+1. 커밋할 값은 무엇인가? → 다음에 읽을 offset, 즉 마지막 처리 offset + 1.
+2. offset은 어디에 저장되나? → group coordinator가 compacted 토픽 `__consumer_offsets`에 key (group, topic, partition) 레코드로 저장한다.
+3. at-least-once가 되는 순서와 그 대가는? → 처리 후 커밋. 대가는 장애 시 중복 처리이므로, 처리를 멱등하게 만든다.
+4. 도구의 LAG와 `records-lag`의 차이는? → LAG는 end offset(HW) − committed다. `records-lag`은 HW − 현재 position이고 consumer가 낸다.
+5. 2주 꺼 둔 group을 다시 켜면? → 빈 group의 offset은 7일 뒤 만료된다. `auto.offset.reset=latest`(기본)면 그사이 메시지를 건너뛴다.
+
+---
+
+## Lesson 7 · `transactions`
+
+- **Title:** 트랜잭션으로 exactly-once
+- **Subtitle:** consume-process-produce를 원자적으로
+- **Summary:** `transactional.id` producer가 출력 쓰기와 offset 커밋을 한 transaction으로 묶고, coordinator가 PREPARE → markers로 끝내고, `read_committed` consumer가 LSO까지만 읽는 과정을 본다.
+- **Critical path:** init (fence) → produce in txn → offsets in txn → EndTxn → PREPARE_COMMIT → markers → LSO → `read_committed` read.
+- **Overview:** transactional한 것은 producer뿐이다. 다만 producer는 consumer의 offset 커밋도 transaction에 넣을 수 있다. exactly-once는 Kafka에서 읽고 Kafka에 쓰는 처리에만 적용된다. 외부 DB에 쓰는 처리는 보장하지 않는다. 마커가 다 쓰이면 coordinator가 `COMPLETE_COMMIT`을 기록한다. **Abort:** abort되면 ABORT 마커가 쓰이고 출력은 `read_committed` consumer에게 보이지 않는다. 하지만 consumer 위치는 자동으로 되감기지 않는다. committed offset으로 `seek()`하거나 producer와 consumer를 다시 만들어야 한다.
+- **Interview questions:** Kafka exactly-once의 범위는? commit은 어떤 단계로 진행되나? zombie producer는 어떻게 막나? `read_committed`는 어디까지 읽나? transaction이 오래 열려 있으면 무슨 일이 생기나?
+
+### Panels
+
+| Node | Panel (initial) |
+|---|---|
+| `producer` | `TransactionManager`: `state: UNINITIALIZED` / `producerId/epoch: —` |
+| `txcoord` | `copier-0`: `producerId/epoch: 7001/3 (E.G.)` / `state: COMPLETE_COMMIT` |
+| `txlog` | `copier-0`: `state: COMPLETE_COMMIT` / `partitions: []` |
+| `log` (`payments-0`) | `payments-0`: `tail: committed` / `HW: 5040 (E.G.)` / `LSO: 5040 (E.G.)` |
+| `c2` (read_committed) | `payments-0`: `read up to: 5040 (E.G.)` / `skipped: —` |
+
+### Steps
+
+**S1 · move · `producer → txcoord` · Network** — *critical*
+- Token: `request` · `InitProducerId(copier-0)`
+- Title: initTransactions
+- Subtitle: transaction coordinator를 찾아 producerId를 받는다.
+- Prose: producer는 `transactional.id`를, consumer는 `isolation.level=read_committed`와 `enable.auto.commit=false`를 설정한다. `initTransactions()`는 coordinator를 찾아 `InitProducerId`를 보낸다. coordinator는 `transactional.id` 해시로 정한 `__transaction_state` 파티션의 leader다.
+- Facts: coordinator = leader of `__transaction_state` partition `abs(hash(transactional.id)) % 50`; `transaction.timeout.ms` = 60000.
+- Event log: `Copier → Broker 3 · Network · InitProducerId(copier-0) · —`
+- Sources: [T1], [T2], [T3]
+
+**S2 · mutate · `txcoord` · Broker** — *critical*
+- Title: epoch fencing
 - Subtitle: 같은 `transactional.id`의 이전 인스턴스는 epoch가 올라가며 막힌다.
-- Prose: `initTransactions()`는 `InitProducerId`(API key 22)를 보낸다. coordinator는 이 `transactional.id`의 producerId를 돌려주고 epoch를 올린다. 이전 인스턴스가 열어 둔 transaction이 있으면 abort한다. 옛 epoch로 오는 요청은 거절되므로 zombie producer가 막힌다.
-- Facts: `InitProducerId` API key = 22; restarted app → in-flight txn of previous instance aborted; `transaction.max.timeout.ms` = 900000; `transactional.id.expiration.ms` = 604800000.
-- Event log: `Copier → Broker 3 · Network · InitProducerId(copier-0) → pid 7001 epoch 4 (E.G.) · —`
-- State: `copier-0 | pid 7001 | epoch 3 | COMPLETE_COMMIT` → `epoch 4 | EMPTY (E.G.)`
-- Sources: [T2], [T6], [T7]
+- Prose: coordinator는 epoch를 올리고, 이전 인스턴스가 열어 둔 transaction을 abort한다. 옛 epoch로 오는 요청은 이후 모두 거절된다. 그래서 죽은 줄 알았던 인스턴스(zombie)가 돌아와도 쓸 수 없다.
+- Facts: epoch bump fences the previous instance; its open transaction is aborted.
+- Event log: `Broker 3 → Copier · Network · InitProducerIdResponse pid 7001 epoch 4 (E.G.) · —`
+- After: `producerId/epoch: 7001/4 (E.G.)` / `state: EMPTY`
+- Sources: [T4], [T1]
 
-**S4 · mutate · `txcoord` · Broker**
-- Title: beginTransaction은 로컬 상태 변경
-- Subtitle: 클라이언트 상태만 `READY → IN_TRANSACTION`, 요청은 없다.
-- Prose: `beginTransaction()`은 클라이언트의 `TransactionManager` 상태만 `IN_TRANSACTION`으로 바꾼다. coordinator가 transaction을 알게 되는 것은 첫 파티션이 추가될 때다. 클라이언트 상태는 `UNINITIALIZED`, `INITIALIZING`, `READY`, `IN_TRANSACTION`, `COMMITTING_TRANSACTION`, `ABORTING_TRANSACTION`, `ABORTABLE_ERROR`, `FATAL_ERROR` 등이다.
-- Facts: client transition = `READY → IN_TRANSACTION`; `beginTransaction()` only checks state and calls `transitionTo` (enqueues no request); coordinator states = `EMPTY(0) ONGOING(1) PREPARE_COMMIT(2) PREPARE_ABORT(3) COMPLETE_COMMIT(4) COMPLETE_ABORT(5) DEAD(6) PREPARE_EPOCH_FENCE(7)`.
+**S3 · mutate · `producer` · Client** — *critical*
+- Title: beginTransaction
+- Subtitle: 클라이언트 상태만 바뀌고 요청은 없다.
+- Prose: `InitProducerId` 응답으로 producer는 producerId와 epoch를 갖는다. `beginTransaction()`은 상태를 `IN_TRANSACTION`으로 바꿀 뿐 요청을 보내지 않는다. coordinator는 첫 파티션이 추가될 때 transaction을 안다.
+- Facts: `beginTransaction()` sends no request; coordinator learns of the txn when the first partition is added.
 - Event log: `Copier · Client · beginTransaction() · —`
-- State: `client: READY` → `client: IN_TRANSACTION`
-- Sources: [T8], [T9]
+- Before: `state: UNINITIALIZED` / `producerId/epoch: —`
+- After: `state: IN_TRANSACTION` / `producerId/epoch: 7001/4 (E.G.)`
+- Sources: [T5]
 
-**S5 · move · `app → out0` · Network**
-- Title: transactional produce (TV2: 파티션 추가 포함)
-- Subtitle: transaction v2에서는 Produce 요청이 AddPartitionsToTxn 역할을 겸한다.
-- Prose: 레코드는 `isTransactional` 비트가 켜진 batch로 각 파티션 leader에 간다. transaction v1에서는 클라이언트가 먼저 `AddPartitionsToTxn`을 보낸다. 4.0부터 서버 기본인 transaction v2에서는 Produce 요청이 그 역할을 함께 한다. 서버는 첫 append 때 coordinator에 검증을 요청해, coordinator가 모르는 transactional 레코드가 쓰이지 않게 막는다.
-- Facts: batch attribute bit 4 = `isTransactional`; `transaction.version=2` enabled by default on server since 4.0; ProduceRequest v12 = includes AddPartitionsToTxn function under TV2; `transaction.partition.verification.enable` = true.
-- Event log: `Copier → Broker 1 · Network · Produce txn pid=7001 e=4 payments-0 · 4 KiB (E.G.)`
-- State (`out0`): `[… committed batches]` → `[…, txn batch pid 7001 (open)]`
-- Sources: [T10], [T11], [T12], [T13]
+**S4 · move · `producer → log` · Network** — *critical*
+- Token: `request` · `Produce txn payments-0`
+- Title: transaction 안에서 쓰기
+- Subtitle: batch에 transactional 표시가 붙고, 파티션이 transaction에 추가된다.
+- Prose: 레코드는 transactional 비트가 켜진 batch로 파티션 leader에 간다. 서버 기본인 transaction v2에서는 이 Produce가 파티션을 transaction에 추가하는 역할도 한다. 브로커는 첫 쓰기 때 coordinator에 확인해, coordinator가 모르는 transactional 레코드가 로그에 들어가지 않게 한다.
+- Facts: batch attribute `isTransactional` = 1; Produce adds the partition to the txn (transaction v2, server default); broker verifies with the coordinator on first write.
+- Event log: `Copier → Broker 1 · Network · Produce txn payments-0 · 4 KiB (E.G.)`
+- Decoder: **Record batch** (`wire: yes`, transactional variant)
+- Sources: [T6], [T7], [T8]
 
-**S6 · mutate · `txlog` · Storage**
-- Title: coordinator가 ONGOING을 기록
-- Subtitle: 파티션 목록과 상태가 `__transaction_state`에 레코드로 남는다.
-- Prose: coordinator는 transaction에 들어온 파티션들과 상태 `ONGOING`을 `TransactionLogValue`로 `__transaction_state`에 쓴다. 이 레코드가 coordinator의 단일 진실 원천이다. coordinator가 바뀌면 새 coordinator가 이 로그를 읽어 상태를 복원한다.
-- Facts: record = `TransactionLogValue` v1 (ProducerId, ProducerEpoch, TransactionTimeoutMs, TransactionStatus, TransactionPartitions, timestamps, tagged ClientTransactionVersion); `transaction.state.log.segment.bytes` = 104857600.
-- Event log: `Broker 3 → __transaction_state · Storage · copier-0 ONGOING [payments-0, payments-1] · ~100 B (E.G.)`
-- State: `copier-0 EMPTY []` → `copier-0 ONGOING [payments-0, payments-1]`
-- Sources: [T14], [T4]
+**S5 · mutate · `txlog` · Storage** — *critical*
+- Title: ONGOING 기록
+- Subtitle: 참여 파티션과 상태가 `__transaction_state`에 남는다.
+- Prose: coordinator는 상태 `ONGOING`과 참여 파티션 목록을 `__transaction_state`에 쓴다. coordinator가 바뀌면 새 coordinator가 이 로그로 상태를 되살린다. `transaction.timeout.ms` 안에 끝나지 않으면 coordinator가 abort한다.
+- Facts: states `EMPTY → ONGOING → PREPARE_COMMIT → COMPLETE_COMMIT` (or `PREPARE_ABORT → COMPLETE_ABORT`); timeout → coordinator aborts.
+- Event log: `Broker 3 → __transaction_state · Storage · copier-0 ONGOING · ~100 B (E.G.)`
+- After: `state: ONGOING` / `partitions: [payments-0, payments-1]`
+- Decoder: **TransactionLogValue** (`wire: no`)
+- Sources: [T9], [T10], [T2]
 
-**S7 · move · `app → gcoord` · Network**
-- Title: sendOffsetsToTransaction
-- Subtitle: consumer offset도 같은 transaction에 넣는다.
-- Prose: producer는 consumer group의 offset을 `TxnOffsetCommit`(API key 28)으로 group coordinator에 보낸다. transaction v1에서는 그 전에 transaction coordinator에 `AddOffsetsToTxn`(API key 25)을 보낸다. v2에서는 이 단계를 건너뛴다. 이 offset은 transaction이 commit될 때까지 확정되지 않는다.
-- Facts: `TxnOffsetCommit` API key = 28; `AddOffsetsToTxn` API key = 25 (skipped in TV2); offsets become visible only on commit (**unverified** at code level; stated in design doc as atomic with output).
-- Event log: `Copier → Broker 2 · Network · TxnOffsetCommit(order-svc, orders-0=1240) (E.G.) · ~90 B (E.G.)`
-- Sources: [T15], [T16], [T1]
+**S6 · move · `producer → coord` · Network** — *critical*
+- Token: `request` · `TxnOffsetCommit(order-svc, orders-0=1240)`
+- Title: offset도 transaction에 넣기
+- Subtitle: `sendOffsetsToTransaction`은 consumer offset을 pending으로 맡긴다.
+- Prose: producer는 consumer group의 offset을 `TxnOffsetCommit`으로 group coordinator에 보낸다. group coordinator는 이 offset을 producerId별 pending으로 둔다. commit 마커가 오면 진짜 offset으로 옮기고, abort면 버린다. 출력 쓰기와 offset 커밋이 함께 성공하거나 함께 실패한다.
+- Facts: offsets held in `pendingTransactionalOffsets` until the marker; commit → become committed offsets, abort → discarded.
+- Event log: `Copier → Broker 2 · Network · TxnOffsetCommit orders-0=1240 (E.G.) · ~90 B (E.G.)`
+- Sources: [T11], [T12]
 
-**S8 · move · `app → txcoord` · Network**
-- Title: commitTransaction → EndTxn
-- Subtitle: coordinator가 PREPARE_COMMIT을 먼저 로그에 쓴다.
-- Prose: `commitTransaction()`은 accumulator를 flush하고 `EndTxn`(API key 26, committed=true)을 보낸다. coordinator는 상태를 `PREPARE_COMMIT`으로 `__transaction_state`에 쓴다. 이 쓰기가 끝나면 결과가 정해진 것이다. 이후 과정은 coordinator가 비동기로 마무리한다.
-- Facts: `EndTxn` API key = 26; ONGOING → PREPARE_COMMIT → COMPLETE_COMMIT; TV2: producer epoch bumped on every transaction.
-- Event log: `Copier → Broker 3 · Network · EndTxn(copier-0, commit) · —`
-- State: `ONGOING` → `PREPARE_COMMIT`
-- Sources: [T17], [T11], [T9]
+**S7 · move · `producer → txcoord` · Network** — *critical*
+- Token: `request` · `EndTxn(commit)`
+- Title: commitTransaction
+- Subtitle: producer는 남은 batch를 flush하고 commit을 요청한다.
+- Prose: `commitTransaction()`은 남은 batch를 모두 보낸 뒤 `EndTxn(commit)`을 보낸다. 이후 단계는 coordinator가 진행한다.
+- Facts: flush before EndTxn; request carries `transactional.id`, producerId, epoch, commit/abort.
+- Event log: `Copier → Broker 3 · Network · EndTxn commit · 46 B (E.G.)`
+- Sources: [T13]
 
-**S9 · move · `txcoord → out0` · Network**
-- Title: WriteTxnMarkers: COMMIT 마커
-- Subtitle: 각 파티션 leader에 control batch(COMMIT)를 쓴다.
-- Prose: coordinator는 transaction에 든 모든 파티션의 leader에 `WriteTxnMarkers`(API key 27)를 보낸다. 각 leader는 control record(type 1 = COMMIT, 0 = ABORT) 하나가 든 control batch를 로그에 쓴다. control record는 애플리케이션에 전달되지 않는다. consumer는 이것으로 transaction의 결과를 안다.
-- Facts: `WriteTxnMarkers` API key = 27; control record key = `version:int16=0, type:int16`; type 0 = ABORT, 1 = COMMIT; batch attribute bit 5 = `isControlBatch`.
-- Event log: `Broker 3 → Broker 1 · Network · WriteTxnMarkers COMMIT pid=7001 payments-0 · —`
-- State (`out0`): `[…, txn batch pid 7001 (open)]` → `[…, txn batch pid 7001, COMMIT marker]`
-- Decoder: **control record** (see Decoder records)
-- Sources: [T18], [T19], [T10]
+**S8 · mutate · `txlog` · Storage** — *critical*
+- Title: PREPARE_COMMIT
+- Subtitle: 이 기록이 끝나면 commit이 확정된다.
+- Prose: coordinator는 `PREPARE_COMMIT`을 `__transaction_state`에 쓴다. 이 기록이 복제되면 transaction은 반드시 commit된다. coordinator가 지금 죽어도 새 coordinator가 로그를 읽어 commit을 마저 끝낸다.
+- Facts: PREPARE_COMMIT is the commit point; recovery completes it after coordinator failover.
+- Event log: `Broker 3 → __transaction_state · Storage · copier-0 PREPARE_COMMIT · ~100 B (E.G.)`
+- After: `state: PREPARE_COMMIT` / `partitions: [payments-0, payments-1]`
+- Sources: [T13], [T9]
 
-**S10 · mutate · `txlog` · Storage**
-- Title: COMPLETE_COMMIT
-- Subtitle: 마커가 모두 쓰이면 coordinator가 완료를 기록한다.
-- Prose: 모든 마커가 쓰이면 coordinator는 `COMPLETE_COMMIT`을 기록하고, `transactional.id`는 다음 transaction을 받을 수 있다. TV2에서는 `CONCURRENT_TRANSACTIONS`를 서버 쪽에서 몇 번 재시도한다. 그래서 그 시간이 클라이언트 backoff가 아니라 produce 지연으로 보인다.
-- Facts: final state = `COMPLETE_COMMIT(4)`; TV2 server-side retry configs = `add.partitions.to.txn.retry.backoff.ms`, `add.partitions.to.txn.retry.backoff.max.ms`; old client retry backoff for this case = 20 ms.
-- Event log: `Broker 3 → __transaction_state · Storage · copier-0 COMPLETE_COMMIT · ~80 B (E.G.)`
-- State: `PREPARE_COMMIT` → `COMPLETE_COMMIT`
-- Sources: [T9], [T11]
+**S9 · move · `txcoord → log` · Network** — *critical*
+- Token: `request` · `WriteTxnMarkers COMMIT pid=7001`
+- Title: 파티션마다 COMMIT 마커
+- Subtitle: 참여한 모든 파티션 leader에 마커를 쓰게 한다.
+- Prose: coordinator는 참여한 모든 파티션의 leader에 `WriteTxnMarkers`를 보낸다. offset이 담긴 `__consumer_offsets` 파티션도 이 마커를 받는다. 그래야 pending offset이 확정된다.
+- Facts: one marker per participating partition (data and offsets).
+- Event log: `Broker 3 → Broker 1 · Network · WriteTxnMarkers COMMIT payments-0 · —`
+- Sources: [T14], [T12]
 
-**S11 · mutate · `rc` · Client**
-- Title: LSO와 read_committed
-- Subtitle: `read_committed`는 LSO까지만, abort된 레코드는 건너뛴다.
-- Prose: LSO(last stable offset)는 그 아래 offset이 모두 "결정된" 첫 offset이다. 진행 중인 transaction의 첫 offset이 HW보다 작으면 그 offset이 LSO고, 아니면 HW다. `read_committed` fetch는 LSO까지만 읽는다. 응답의 `AbortedTransactions`(producerId, firstOffset)와 `.txnindex`로 abort된 batch를 걸러 낸다.
-- Facts: LSO = min(first unstable offset, HW); `isolation.level` default = `read_uncommitted`; FetchResponse fields = `LastStableOffset`, `AbortedTransactions[ProducerId, FirstOffset]`; aborted ranges stored per segment in `.txnindex`.
-- Event log: `Broker 1 → RC consumer · Network · FetchResponse LSO=5100 aborted=[pid 6900@5020] (E.G.) · 64 KiB (E.G.)`
-- State: `LSO 5040 (txn open)` → `LSO 5100 (committed) (E.G.)`
-- Sources: [T20], [T21], [T22], [T23]
+**S10 · mutate · `log` · Storage** — *critical*
+- Title: COMMIT 마커와 LSO
+- Subtitle: 마커가 쓰이면 transaction이 결정되고 LSO가 오른다.
+- Prose: leader는 COMMIT control record를 로그에 쓴다. control record는 애플리케이션에 전달되지 않는다. LSO(last stable offset)는 아직 열린 transaction의 첫 offset이다. 열린 transaction이 없으면 HW다. 이제 열린 transaction이 없으므로 LSO가 HW까지 오른다.
+- Facts: control record type 1 = COMMIT, 0 = ABORT; LSO = min(first open txn offset, HW).
+- Event log: `Broker 1 → payments-0 · Storage · COMMIT marker at 5099 (E.G.) · 78 B (E.G.)`
+- Before: `tail: 5040–5098 txn pid 7001 (open) (E.G.)` / `HW: 5099 (E.G.)` / `LSO: 5040 (E.G.)`
+- After: `tail: 5040–5098 txn pid 7001 · 5099 COMMIT (E.G.)` / `HW: 5100 (E.G.)` / `LSO: 5100 (E.G.)`
+- Decoder: **Control batch** (`wire: no`)
+- Sources: [T6], [T15]
 
-**S12 · mutate · `app` · Client**
-- Title: abort와 재처리
-- Subtitle: abort되면 offset을 직접 되감아야 한다.
-- Prose: abort되면 ABORT 마커가 쓰이고 출력은 `read_committed` consumer에게 보이지 않는다. 저장된 consumer offset도 이전 값으로 남는다. 하지만 consumer의 메모리 위치는 자동으로 되감기지 않는다. 그래서 committed offset을 다시 읽어 `seek()`하거나, producer와 consumer를 다시 만들어야 한다.
-- Facts: abortable errors → app must abort and reset position; simple policy = recreate producer and consumer; advanced = `committed()` + `seek()`.
-- Event log: `Copier · Client · abortTransaction(); seek(orders-0, 1237) (E.G.) · —`
-- State: `position 1240` → `position 1237 (E.G.)`
-- Sources: [T1], [T24]
+**S11 · mutate · `c2` · Client** — *critical*
+- Title: read_committed는 LSO까지
+- Subtitle: 열린 transaction이 있으면 그 뒤 메시지는 기다리고, abort된 batch는 건너뛴다.
+- Prose: `read_committed` consumer는 LSO까지만 읽는다. 오래 열린 transaction이 있으면 LSO가 멈춰, 그 뒤의 모든 메시지가 막힌다. 이것이 transaction이 오래 걸리면 lag이 생기는 이유다. abort된 batch는 응답에 함께 오는 aborted 목록으로 걸러 낸다.
+- Facts: `isolation.level` default = `read_uncommitted`; `read_committed` reads up to LSO; open txn stalls LSO for all consumers; aborted batches filtered.
+- Event log: `Broker 1 → read_committed consumer · Network · FetchResponse LSO=5100 (E.G.) · 64 KiB (E.G.)`
+- After: `read up to: 5100 (E.G.)` / `skipped: aborted pid 6900 · 5020–5030 (E.G.)`
+- Sources: [T15], [T16], [T17]
 
-### Decoder records
+**Replay:** InitProducerId (fence) → Produce in txn → ONGOING → TxnOffsetCommit → EndTxn → PREPARE_COMMIT → markers → LSO advances → `read_committed` consumer reads.
 
-1. **Record batch v2 with transactional bit** (S5): attributes `0x0010` (bit 4), `producerId`/`producerEpoch` set. Reuse lesson 1 layout.
-2. **Control batch (COMMIT marker)** (S9): attributes `0x0030` (bits 4 and 5); one record whose key is `00 00 00 01` (version 0, type 1) and whose value is the version-prefixed `EndTxnMarker` (`CoordinatorEpoch`).
-3. **TransactionLogValue v1** (S6, S8, S10): field table only.
+### Decoder records used
+
+| Record | Step | wire |
+|---|---|---|
+| Record batch (transactional variant) | S4 | yes |
+| TransactionLogValue | S5 | no |
+| Control batch | S10 | no |
 
 ### Sources
 
 | id | What | URL |
 |---|---|---|
-| T1 | Using transactions: three aspects, configs, abort handling | `K/docs/design/design.md#L209-L244` |
-| T2 | Producer `transaction.timeout.ms` | `K/clients/src/main/java/org/apache/kafka/clients/producer/ProducerConfig.java#L579-L582` |
-| T3 | Transaction coordinator partition | `K/core/src/main/scala/kafka/coordinator/transaction/TransactionStateManager.scala#L439` |
-| T4 | `__transaction_state` defaults | `K/transaction-coordinator/src/main/java/org/apache/kafka/coordinator/transaction/TransactionLogConfig.java#L32-L62` |
-| T5 | Transactional `FindCoordinator` type | `K/clients/src/main/java/org/apache/kafka/clients/producer/internals/TransactionManager.java#L1537-L1544` |
-| T6 | Transaction timeouts and expiration | `K/transaction-coordinator/src/main/java/org/apache/kafka/coordinator/transaction/TransactionStateManagerConfig.java#L33-L39` |
-| T7 | `InitProducerId` handling, epoch fence | `K/core/src/main/scala/kafka/coordinator/transaction/TransactionCoordinator.scala#L118-L290` |
-| T8 | Client `TransactionManager` states | `K/clients/src/main/java/org/apache/kafka/clients/producer/internals/TransactionManager.java#L157-L166` and `#L356-L361` |
+| T1 | Using transactions; abort handling; scope | `K/docs/design/design.md#L203-L244` |
+| T2 | `transaction.timeout.ms` | `K/clients/src/main/java/org/apache/kafka/clients/producer/ProducerConfig.java#L579-L582` |
+| T3 | Transaction coordinator partition; topic defaults | `K/core/src/main/scala/kafka/coordinator/transaction/TransactionStateManager.scala#L439`, `K/transaction-coordinator/src/main/java/org/apache/kafka/coordinator/transaction/TransactionLogConfig.java#L32` |
+| T4 | `InitProducerId` handling, epoch fence | `K/core/src/main/scala/kafka/coordinator/transaction/TransactionCoordinator.scala#L118-L290` |
+| T5 | Client states; `beginTransaction` | `K/clients/src/main/java/org/apache/kafka/clients/producer/internals/TransactionManager.java#L157-L166`, `#L356-L361` |
+| T6 | Batch attributes; control batches | `K/docs/implementation/message-format.md#L41-L52`, `#L73-L131` |
+| T7 | Transaction protocol v2 doc; secondary: KIP-890 | `K/docs/operations/transaction-protocol.md#L29-L37`; `https://cwiki.apache.org/confluence/x/B40ODg` |
+| T8 | Write verification guard | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/UnifiedLog.java#L1423-L1433` |
 | T9 | Coordinator `TransactionState` | `K/transaction-coordinator/src/main/java/org/apache/kafka/coordinator/transaction/TransactionState.java#L39-L82` |
-| T10 | Batch attributes, control batches | `K/docs/implementation/message-format.md#L41-L52` and `#L73-L131` |
-| T11 | Transaction protocol v2 (KIP-890) doc | `K/docs/operations/transaction-protocol.md#L29-L53` |
-| T12 | ProduceRequest v12 note on TV2 | `K/clients/src/main/resources/common/message/ProduceRequest.json#L45-L48` |
-| T13 | Verification guard comment, `transaction.partition.verification.enable` | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/UnifiedLog.java#L1423-L1433`; `K/transaction-coordinator/src/main/java/org/apache/kafka/coordinator/transaction/TransactionLogConfig.java#L53` |
-| T14 | `TransactionLogValue` | `K/transaction-coordinator/src/main/resources/common/message/TransactionLogValue.json#L16-L53` |
-| T15 | TV2 skips `AddOffsetsToTxn` | `K/clients/src/main/java/org/apache/kafka/clients/producer/internals/TransactionManager.java#L441-L460` |
-| T16 | API keys 25, 28 | `K/clients/src/main/resources/common/message/AddOffsetsToTxnRequest.json#L17`, `K/clients/src/main/resources/common/message/TxnOffsetCommitRequest.json#L17` |
-| T17 | `handleEndTransaction` | `K/core/src/main/scala/kafka/coordinator/transaction/TransactionCoordinator.scala#L516-L708` |
-| T18 | `WriteTxnMarkers` API key | `K/clients/src/main/resources/common/message/WriteTxnMarkersRequest.json#L17` |
-| T19 | `EndTxn` API key | `K/clients/src/main/resources/common/message/EndTxnRequest.json#L17` |
-| T20 | LSO definition | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/UnifiedLog.java#L672-L686` |
-| T21 | `FetchResponse` `LastStableOffset`, `AbortedTransactions` | `K/clients/src/main/resources/common/message/FetchResponse.json#L75` and `#L102-L108` |
-| T22 | `TransactionIndex` | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/TransactionIndex.java#L38-L55` |
-| T23 | `isolation.level` default | `K/clients/src/main/java/org/apache/kafka/clients/consumer/ConsumerConfig.java#L382` |
-| T24 | Exception categories | `K/docs/design/design.md#L231-L238` |
+| T10 | `TransactionLogValue` | `K/transaction-coordinator/src/main/resources/common/message/TransactionLogValue.json#L16-L53` |
+| T11 | `sendOffsetsToTransaction` path | `K/clients/src/main/java/org/apache/kafka/clients/producer/internals/TransactionManager.java#L441-L460` |
+| T12 | `pendingTransactionalOffsets`; end-marker replay | `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/OffsetMetadataManager.java#L180-L185`, `#L1251-L1262` |
+| T13 | `handleEndTransaction`; `EndTxnRequest` | `K/core/src/main/scala/kafka/coordinator/transaction/TransactionCoordinator.scala#L516-L708`, `K/clients/src/main/resources/common/message/EndTxnRequest.json#L16-L43` |
+| T14 | `WriteTxnMarkers` request | `K/clients/src/main/resources/common/message/WriteTxnMarkersRequest.json#L16-L49` |
+| T15 | LSO definition | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/UnifiedLog.java#L672-L686` |
+| T16 | `FetchResponse` `LastStableOffset`, `AbortedTransactions` | `K/clients/src/main/resources/common/message/FetchResponse.json#L75`, `#L102-L108` |
+| T17 | `isolation.level` default; fetch isolation | `K/clients/src/main/java/org/apache/kafka/clients/consumer/ConsumerConfig.java#L382`, `K/server-common/src/main/java/org/apache/kafka/server/storage/log/FetchIsolation.java#L22-L39` |
 
 ### Self-check
 
-1. exactly-once에 필요한 클라이언트 설정 세 가지는? → producer `transactional.id`, consumer `isolation.level=read_committed`, `enable.auto.commit=false`.
-2. transaction coordinator는 어떻게 정해지나? → `abs(transactionalId.hashCode) % 50` 번 `__transaction_state` 파티션의 leader.
-3. commit의 서버 쪽 단계는? → PREPARE_COMMIT 기록 → 각 파티션에 COMMIT 마커(WriteTxnMarkers) → COMPLETE_COMMIT 기록.
-4. zombie producer fencing 원리는? → `InitProducerId`가 epoch를 올리고, 옛 epoch 요청은 거절된다. TV2에서는 transaction마다 epoch가 오른다.
-5. LSO는? → 진행 중인 transaction의 첫 offset과 HW 중 작은 값. `read_committed`의 읽기 상한이다.
-6. abort 후 consumer가 해야 할 일은? → 위치를 committed offset으로 되감는다(`seek`), 또는 consumer/producer를 다시 만든다.
+1. exactly-once에 필요한 설정 세 가지는? → producer `transactional.id`, consumer `isolation.level=read_committed`, `enable.auto.commit=false`.
+2. commit의 서버 쪽 단계는? → PREPARE_COMMIT 기록 → 파티션마다 COMMIT 마커 → COMPLETE_COMMIT 기록.
+3. zombie producer는 어떻게 막나? → `InitProducerId`가 epoch를 올리고, 옛 epoch 요청은 거절된다.
+4. transaction 안의 offset은 언제 보이나? → COMMIT 마커가 offset 파티션에 도착할 때.
+5. 오래 열린 transaction의 부작용은? → LSO가 멈춰 `read_committed` consumer가 그 뒤 메시지를 읽지 못한다.
+6. Kafka exactly-once가 보장하지 않는 것은? → 외부 시스템(DB 등)에 쓰는 부수 효과.
 
 ---
 
-## Lesson 6 · `kraft-metadata`: 클러스터 metadata는 Raft 로그다
+## Lesson 8 · `kraft-failover`
 
-### Goal
+- **Title:** 브로커 장애와 leader failover
+- **Subtitle:** KRaft controller가 장애를 감지하고 leader를 바꾸는 경로
+- **Summary:** broker heartbeat가 끊기면 controller가 broker를 fence하고, ISR에서 새 leader를 고르고, broker와 producer가 새 leader로 옮겨 가는 과정을 본다.
+- **Critical path:** heartbeats stop → controller fences broker → new leader from ISR → brokers apply → producer refreshes metadata and retries.
+- **Overview:** ZooKeeper 대신 controller 노드들(KRaft quorum, 보통 3대)이 cluster metadata를 `__cluster_metadata`라는 로그 하나에 복제해 관리한다. 과반이 살아 있어야 metadata를 바꿀 수 있으므로, 3대는 1대, 5대는 2대의 장애를 견딘다. broker는 이 로그를 따라 읽으며 자기 역할을 정한다. 4.x는 ISR이 모두 죽었을 때를 대비해, ISR 밖이지만 안전한 replica를 leader 후보(ELR)로 기록할 수 있다(새 클러스터는 4.1부터 기본 활성).
+- **Interview questions:** broker가 죽으면 무슨 일이 몇 초 안에 일어나나? controller는 몇 대가 필요한가? producer는 새 leader를 어떻게 아나? ISR이 모두 죽으면?
 
-ZooKeeper 없이 controller quorum이 `__cluster_metadata` 로그 하나에 클러스터 상태를 기록하고, broker가 그 로그를 따라 읽어 상태를 맞추는 방식을 본다. 예로 broker heartbeat로 fencing하는 과정과 ISR 변경을 쓴다.
+### Panels
 
-Interview questions it answers:
-- KRaft에서 controller는 몇 대가 필요하고, 몇 대 장애를 견디나?
-- metadata는 어디에 어떤 형식으로 저장되나? broker는 metadata를 어떻게 받나?
-- broker가 죽은 것을 controller는 어떻게 알고, 그 파티션은 어떻게 되나?
-- KRaft의 Raft는 일반 Raft와 무엇이 다른가?
-
-### Nodes
-
-| id | Label | Kind | Illustration idea | Appears at |
-|---|---|---|---|---|
-| `c1` | Controller 1 (active) | `framework` | Control tower with a lit beacon | S1 |
-| `c2` | Controller 2 | `framework` | Control tower, beacon off | S1 |
-| `c3` | Controller 3 | `framework` | Control tower, beacon off | S1 |
-| `mlog` | `__cluster_metadata-0` | `storage` | Long scroll with numbered records and a snapshot bookmark | S3 |
-| `b1` | Broker 1 | `container` | Server tower | S5 |
-| `b2` | Broker 2 | `container` | Server tower | S5 |
-
-Node-state panels: `c1` (table: voter, role, epoch, LEO), `mlog` (list of records with offset), `b1` (table: brokerId, fenced, brokerEpoch).
+| Node | Panel (initial) |
+|---|---|
+| `controller` | `cluster`: `active controller: 1 of 3` / `broker 1: alive` / `broker 2: alive` / `orders-0: leader 2 · epoch 8 · ISR [1, 2] (E.G.)` |
+| `b1` | `orders-0`: `role: follower` |
+| `sender` | `metadata`: `orders-0 leader: 2 (E.G.)` |
 
 ### Steps
 
-**S1 · mutate · `c1` · Controller**
+**S1 · mutate · `controller` · Controller** — *critical*
 - Title: controller quorum
-- Subtitle: `process.roles=controller` 노드 3대, 과반수가 살아 있어야 한다.
-- Prose: KRaft에서는 `process.roles`로 각 서버를 `broker`, `controller` 또는 둘 다로 지정한다. controller들이 metadata quorum을 이루고, 그중 하나가 active이고 나머지는 hot standby다. N대의 장애를 견디려면 2N+1대가 필요하다. 운영 환경에서는 combined mode를 피한다.
-- Facts: 3 controllers tolerate 1 failure, 5 tolerate 2; `process.roles` ∈ {`broker`, `controller`, `broker,controller`}; discovery = `controller.quorum.bootstrap.servers` (`controller.quorum.voters` deprecated with KRaft version 1); sizing guide = 5 GB RAM + 5 GB disk for metadata.
-- Event log: `Controller 1 · Controller · start, voters [1,2,3] (E.G.) · —`
-- State: `all voters: Unattached` → `all voters: Follower (no leader yet)`
+- Subtitle: controller 3대 중 하나가 active이고, metadata는 로그 하나다.
+- Prose: `process.roles=controller` 노드들이 quorum을 이룬다. 그중 하나가 active controller다. 토픽, 파티션 leader, ISR, broker 상태가 모두 `__cluster_metadata` 로그의 레코드다. N대 장애를 견디려면 2N+1대가 필요하다. 운영 환경에서는 broker와 controller를 같은 프로세스에 두지 않는다.
+- Facts: 3 controllers tolerate 1 failure, 5 tolerate 2; metadata log = `__cluster_metadata`; avoid combined `broker,controller` in production.
+- Event log: `Controller 1 · Controller · active, voters [1, 2, 3] (E.G.) · —`
+- After: `active controller: 1 of 3` / `broker 1: alive` / `broker 2: alive` / `orders-0: leader 2 · epoch 8 · ISR [1, 2] (E.G.)`
 - Sources: [K1], [K2]
 
-**S2 · move · `c2 → c1` · Controller**
-- Title: Vote: active controller 선출
-- Subtitle: election timeout이 지나면 candidate가 Vote를 보낸다.
-- Prose: leader 선출은 거의 순수한 Raft다. election timeout이 만료된 voter가 candidate가 되어, 자기 로그의 마지막 offset을 담은 `Vote`를 보낸다. v2부터는 `PreVote` 플래그가 있다. 과반을 얻으면 leader가 되고, `BeginQuorumEpoch`로 새 epoch를 알린다. 이 leader가 active controller다.
-- Facts: `controller.quorum.election.timeout.ms` = 1000; `controller.quorum.election.backoff.max.ms` = 1000; `Vote` API key = 52 (v2 adds `PreVote`); `BeginQuorumEpoch` asserts leadership because replication is fetch-driven.
-- Event log: `Controller 1 → Controller 2,3 · Controller · Vote epoch=5 lastOffset=7228 (E.G.) · —`
-- State: `C1 Follower e4` → `C1 Leader e5 (E.G.)`
-- Sources: [K3], [K4], [K5]
+**S2 · move · `b2 → controller` · Controller** — *critical*
+- Token: `request` · `BrokerHeartbeat broker=2`
+- Title: broker heartbeat
+- Subtitle: broker는 2초마다 heartbeat를 보내 세션을 유지한다.
+- Prose: broker는 `broker.heartbeat.interval.ms`(2초)마다 controller에 heartbeat를 보낸다. 이 세션이 살아 있는 동안만 controller는 broker를 정상으로 본다. broker는 metadata 로그를 fetch해 따라가지만, 투표하지는 않는다.
+- Facts: `broker.heartbeat.interval.ms` = 2000; `broker.session.timeout.ms` = 9000.
+- Event log: `Broker 2 → Controller · Controller · BrokerHeartbeat · —`
+- Sources: [K3], [K4]
 
-**S3 · mutate · `mlog` · Storage**
-- Title: metadata는 `__cluster_metadata` 로그
-- Subtitle: 토픽, 파티션, broker 등록, 설정, ACL이 모두 레코드다.
-- Prose: active controller는 상태 변경을 `__cluster_metadata` 파티션 0에 metadata 레코드로 append한다. 예로 `TopicRecord`, `PartitionRecord`, `PartitionChangeRecord`, `RegisterBrokerRecord`, `FenceBrokerRecord`, `ConfigRecord`, `ProducerIdsRecord`가 있다. 레코드는 frame version, apiKey, version을 unsigned varint로 앞에 붙여 직렬화된다. 다른 voter는 Fetch로 이 로그를 복제한다.
-- Facts: topic = `__cluster_metadata-0`; record frame = `uvarint frameVersion(1) + uvarint apiKey + uvarint version + message`; `PartitionChangeRecord` apiKey = 5; `controller.quorum.append.linger.ms` = 25.
-- Event log: `Controller 1 → __cluster_metadata · Storage · append TopicRecord(orders) (E.G.) · ~40 B (E.G.)`
-- State: `[…7228]` → `[…7228, 7229 TopicRecord, 7230 PartitionRecord×3] (E.G.)`
-- Decoder: **PartitionChangeRecord v2** (see Decoder records)
-- Sources: [K6], [K7], [K8], [K4]
-
-**S4 · move · `c2 → c1` · Controller**
-- Title: voter fetch와 commit
-- Subtitle: 복제는 push가 아니라 follower fetch로 진행된다.
-- Prose: KRaft의 복제는 Kafka의 일반 Fetch API로 follower가 당겨 가는 방식이다. 응답에는 현재 leader와 epoch가 함께 실리고, 로그가 갈라진 지점도 이 응답으로 알린다. follower의 LEO가 leader의 log start offset보다 작으면 `FetchSnapshot`으로 snapshot을 받는다. 과반이 복제한 offset까지가 committed다.
-- Facts: replication = fetch-driven; `controller.quorum.fetch.timeout.ms` = 2000; snapshot transfer = `FetchSnapshot` (API key 59); voters vs observers: only voters vote.
-- Event log: `Controller 2 → Controller 1 · Controller · Fetch __cluster_metadata offset=7229 (E.G.) · —`
-- Sources: [K5], [K4]
-
-**S5 · move · `b1 → c1` · Controller**
-- Title: broker 등록과 heartbeat
-- Subtitle: broker는 controller와 세션을 유지해야 살아 있는 것이다.
-- Prose: broker는 시작할 때 `BrokerRegistration`(API key 62)으로 등록하고 broker epoch를 받는다. 이후 `broker.heartbeat.interval.ms`마다 `BrokerHeartbeat`(API key 63)를 보낸다. broker는 observer로서 `__cluster_metadata`를 fetch해 metadata를 따라간다. 따라잡으면 unfence되어 leader를 맡을 수 있다.
-- Facts: `broker.heartbeat.interval.ms` = 2000; `broker.session.timeout.ms` = 9000; `initial.broker.registration.timeout.ms` = 60000; brokers = observers (do not vote).
-- Event log: `Broker 1 → Controller 1 · Controller · BrokerHeartbeat id=1 epoch=210 (E.G.) · —`
-- State: `B1 fenced=true` → `B1 fenced=false (UnfenceBrokerRecord) (E.G.)`
-- Sources: [K9], [K10], [K11], [K5]
-
-**S6 · mutate · `c1` · Controller**
+**S3 · mutate · `controller` · Controller** — *critical*
 - Title: heartbeat 끊김 → fence
-- Subtitle: `broker.session.timeout.ms` 동안 heartbeat가 없으면 offline이다.
-- Prose: controller가 `broker.session.timeout.ms` 안에 B2의 heartbeat를 받지 못하면 B2를 offline으로 본다. 그러면 `FenceBrokerRecord`를 쓰고, B2가 leader이던 파티션마다 새 leader를 ISR에서 골라 `PartitionChangeRecord`를 쓴다. 여러 파티션의 변경을 한 번에 처리한다.
-- Facts: session timeout = 9000 ms; controller handles fencing via `handleBrokerFenced`; per-partition change = `PartitionChangeRecord(Leader=…, Isr=…)`.
-- Event log: `Controller 1 → __cluster_metadata · Controller · FenceBrokerRecord id=2; PartitionChangeRecord×N (E.G.) · —`
-- State: `B2 fenced=false` → `B2 fenced=true`
-- Sources: [K12], [K13], [R13]
+- Subtitle: 9초 동안 heartbeat가 없으면 broker를 offline으로 본다.
+- Prose: Broker 2가 죽어 heartbeat가 9초 동안 오지 않는다. controller는 B2를 fence한다. 그러면 B2는 leader가 될 수 없고, 모든 ISR에서 빠진다. 프로세스가 죽은 경우만이 아니라 긴 GC 정지나 네트워크 단절도 같은 결과를 낸다.
+- Facts: no heartbeat for `broker.session.timeout.ms` → fenced; fenced broker removed from ISRs and leadership.
+- Event log: `Controller · Controller · fence broker 2 (session expired) · 9 s (E.G.)`
+- After: `active controller: 1 of 3` / `broker 1: alive` / `broker 2: fenced` / `orders-0: leader 2 · epoch 8 · ISR [1, 2] (E.G.)`
+- Sources: [K5], [K6]
 
-**S7 · move · `c1 → b1` · Controller**
-- Title: broker가 변경을 적용
-- Subtitle: broker는 metadata 로그를 읽어 자기 파티션 역할을 바꾼다.
-- Prose: B1은 fetch로 `PartitionChangeRecord`를 받아, 자기가 새 leader가 된 파티션의 leader 역할을 시작한다. metadata 변경이 없을 때도 controller는 `metadata.max.idle.interval.ms`마다 `NoOpRecord`를 써서 로그를 진행시킨다.
-- Facts: `metadata.max.idle.interval.ms` = 500; `PartitionChangeRecord.Leader`: -1 = no leader, -2 = unchanged; `Isr` null = unchanged.
-- Event log: `Controller 1 → Broker 1 · Controller · Fetch response: PartitionChangeRecord orders-0 leader=1 (E.G.) · —`
-- State: `B1 orders-0: follower` → `B1 orders-0: leader (E.G.)`
-- Sources: [K8], [K14]
+**S4 · mutate · `controller` · Controller** — *critical*
+- Title: ISR에서 새 leader 선출
+- Subtitle: 남은 ISR 멤버 B1이 leader가 되고 leader epoch가 오른다.
+- Prose: controller는 B2가 leader이던 파티션마다 남은 ISR에서 새 leader를 고른다. 여러 파티션을 한 번에 처리한다. 결과는 metadata 로그에 기록된다. leader epoch가 오르므로 옛 leader가 돌아와도 자기가 leader라고 착각하지 않는다.
+- Facts: new leader chosen from ISR; leader epoch increments; changes batched across partitions.
+- Event log: `Controller · Controller · orders-0 leader 2 → 1, epoch 9 (E.G.) · —`
+- After: `active controller: 1 of 3` / `broker 1: alive` / `broker 2: fenced` / `orders-0: leader 1 · epoch 9 · ISR [1] (E.G.)`
+- Decoder: **Partition state** (`wire: no`)
+- Sources: [K7], [K8]
 
-**S8 · mutate · `mlog` · Storage**
-- Title: snapshot
-- Subtitle: 로그가 커지면 상태를 snapshot으로 접는다.
-- Prose: 새 레코드가 `metadata.log.max.record.bytes.between.snapshots`만큼 쌓이거나, `metadata.log.max.snapshot.interval.ms`가 지나면 snapshot을 만든다. snapshot 파일 이름은 `<offset>-<epoch>.checkpoint`다. `kafka-metadata-shell.sh`로 snapshot 안의 `/topics/<name>/<p>/data`를 볼 수 있다.
-- Facts: `metadata.log.max.snapshot.interval.ms` = 3600000; snapshot file = `00000000000000007228-0000000001.checkpoint`-style; metadata log segment = 1 GiB, retention 100 MiB / 7 days.
-- Event log: `Controller 1 · Storage · snapshot @7228 epoch 1 (E.G.) · —`
-- State: `[0..7228 records]` → `[snapshot 7228-1] + [7229..]`
-- Sources: [K15], [K16]
+**S5 · move · `controller → b1` · Controller** — *critical*
+- Token: `response` · `metadata: orders-0 leader=1 epoch=9`
+- Title: broker가 변경을 받는다
+- Subtitle: broker는 metadata 로그를 fetch해 새 레코드를 받는다.
+- Prose: B1은 metadata 로그를 계속 fetch하고 있으므로, 다음 응답에서 파티션 변경 레코드를 받는다. 변경이 없을 때도 controller는 주기적으로 빈 레코드를 써서 로그가 살아 있게 한다.
+- Facts: brokers follow the metadata log as observers; change record = leader, epoch, ISR.
+- Event log: `Controller → Broker 1 · Controller · PartitionChangeRecord orders-0 (E.G.) · —`
+- Sources: [K9], [K10]
 
-**S9 · mutate · `c1` · Controller**
-- Title: producerId 블록 할당
-- Subtitle: idempotent producer의 producerId도 controller가 1000개씩 나눠 준다.
-- Prose: lesson 1의 `InitProducerId`에 답하는 broker는 controller에게서 producerId 블록을 받아 쓴다. controller는 블록 할당을 `ProducerIdsRecord`로 metadata 로그에 남긴다. 그래서 failover 뒤에도 같은 ID를 다시 나눠 주지 않는다.
-- Facts: block size = 1000 (`PRODUCER_ID_BLOCK_SIZE`); record = `ProducerIdsRecord`; allocation via `ProducerIdControlManager`.
-- Event log: `Broker 1 → Controller 1 · Controller · AllocateProducerIds → [7000..7999] (E.G.) · —`
-- State: `next block start 7000` → `8000 (E.G.)`
-- Sources: [K17]
+**S6 · mutate · `b1` · Broker** — *critical*
+- Title: B1이 leader가 된다
+- Subtitle: 새 epoch로 쓰기를 받기 시작한다.
+- Prose: B1은 레코드를 적용하고 `orders-0`의 leader 역할을 시작한다. 이제 Produce와 Fetch를 받는다. ISR이 [1]뿐이므로, `min.insync.replicas=2`인 토픽은 B2가 돌아와 따라잡을 때까지 `acks=all` 쓰기를 거절한다(lesson 4).
+- Facts: new leader serves produce/fetch at the new epoch; ISR [1] + min ISR 2 → `acks=all` rejected until a follower catches up.
+- Event log: `Broker 1 · Broker · orders-0 become leader, epoch 9 (E.G.) · —`
+- After: `role: leader · epoch 9 (E.G.)`
+- Sources: [K8], [R16]
 
-### Decoder records
+**S7 · move · `b1 → sender` · Network** — *critical*
+- Token: `response` · `NOT_LEADER_OR_FOLLOWER`
+- Title: producer가 옛 leader 오류를 받는다
+- Subtitle: 오류를 받으면 metadata를 새로 받는다.
+- Prose: producer는 아직 B2를 leader로 알고 있다. 요청이 실패하거나 `NOT_LEADER_OR_FOLLOWER` 같은 metadata 오류를 받으면 metadata 갱신을 요청한다. 오류 응답에 새 leader 정보가 실려 오면 그것을 바로 쓴다. 이 사이에 쌓인 batch는 accumulator에서 기다린다.
+- Facts: `NotLeaderOrFollowerException` is an `InvalidMetadataException` → metadata update requested; response may carry the current leader; otherwise metadata refreshes every `metadata.max.age.ms` (300000).
+- Event log: `Broker 1 → Sender · Network · ProduceResponse NOT_LEADER_OR_FOLLOWER (E.G.) · —`
+- Sources: [K11], [K12]
 
-1. **PartitionChangeRecord v2** (S3, S6, S7): see "Decoder: PartitionChangeRecord".
-2. **PartitionRecord** (S3): field table (`PartitionId`, `TopicId`, `Replicas`, `Isr`, `RemovingReplicas`, `AddingReplicas`, `Leader`, `LeaderRecoveryState`, `LeaderEpoch`, `PartitionEpoch`, `Directories`, `EligibleLeaderReplicas`, `LastKnownElr`), with the metadata-shell JSON from the docs as the example view.
+**S8 · mutate · `sender` · Client** — *critical*
+- Title: 새 leader로 재시도
+- Subtitle: idempotent producer는 같은 sequence로 다시 보내므로 중복이 생기지 않는다.
+- Prose: 새 metadata로 B1이 leader임을 알게 된 producer는 실패한 batch를 B1으로 다시 보낸다. sequence가 같으므로, 옛 leader가 이미 받아 복제해 둔 batch라면 B1이 중복으로 알아본다. 장애 중 지연은 대략 session timeout + 선출 + metadata 갱신이다. 그 전체가 `delivery.timeout.ms` 안에 끝나야 한다.
+- Facts: retry keeps sequence (no duplicate); failover delay ≈ `broker.session.timeout.ms` + election + metadata refresh; must fit in `delivery.timeout.ms` (120000).
+- Event log: `Sender → Broker 1 · Network · Produce retry orders-0 · 10 s total (E.G.)`
+- After: `orders-0 leader: 1 · epoch 9 (E.G.)`
+- Sources: [P11], [P1], [K3]
+
+**S9 · mutate · `controller` · Controller** — *side*
+- Title: ISR이 모두 죽으면
+- Subtitle: 기본은 ISR replica가 돌아올 때까지 파티션이 멈춘다.
+- Prose: ISR 전원이 죽으면 기본 설정(`unclean.leader.election.enable=false`)에서는 파티션이 offline이 된다. ISR replica가 돌아올 때까지 읽기와 쓰기가 모두 멈춘다. `true`로 바꾸면 ISR 밖 replica가 leader가 되어 빨리 복구되지만, committed 메시지를 잃을 수 있다.
+- Facts: `unclean.leader.election.enable` = false; unclean = availability over durability, may lose committed data.
+- Event log: `Controller · Controller · orders-0 offline (no ISR alive) (E.G.) · —`
+- After: `active controller: 1 of 3` / `broker 1: fenced` / `broker 2: fenced` / `orders-0: leader none · ISR [1] · offline (E.G.)`
+- Sources: [K13], [K14]
+
+**Replay:** B2 heartbeats stop → controller fences B2 → new leader B1 from ISR → B1 applies the change → producer gets `NOT_LEADER_OR_FOLLOWER` → refreshes metadata → retries to B1.
+
+### Decoder records used
+
+| Record | Step | wire |
+|---|---|---|
+| Partition state | S4 | no |
 
 ### Sources
 
 | id | What | URL |
 |---|---|---|
 | K1 | `process.roles`, quorum size | `K/docs/operations/kraft.md#L33-L49` |
-| K2 | Deploying considerations (2N+1, combined mode, sizing) | `K/docs/operations/kraft.md#L318-L322` |
-| K3 | `controller.quorum.*` defaults | `K/raft/src/main/java/org/apache/kafka/raft/QuorumConfig.java#L74-L118` |
-| K4 | Vote `PreVote`; API keys | `K/clients/src/main/resources/common/message/VoteRequest.json#L17-L52`, `K/clients/src/main/resources/common/message/FetchSnapshotRequest.json#L17` |
-| K5 | KafkaRaftClient protocol overview | `K/raft/src/main/java/org/apache/kafka/raft/KafkaRaftClient.java#L130-L169` |
-| K6 | `__cluster_metadata` file paths, dump tool | `K/docs/operations/kraft.md#L279-L316` |
-| K7 | Metadata record frame | `K/server-common/src/main/java/org/apache/kafka/server/common/serialization/AbstractApiMessageSerde.java#L44-L76` |
-| K8 | `PartitionChangeRecord` | `K/metadata/src/main/resources/common/metadata/PartitionChangeRecord.json#L16-L56` |
-| K9 | Broker heartbeat/session/registration defaults | `K/raft/src/main/java/org/apache/kafka/raft/KRaftConfigs.java#L35-L44` |
-| K10 | `BrokerRegistration` / `BrokerHeartbeat` API keys | `K/clients/src/main/resources/common/message/BrokerRegistrationRequest.json#L21`, `K/clients/src/main/resources/common/message/BrokerHeartbeatRequest.json#L19` |
-| K11 | Active session via heartbeats | `K/docs/design/design.md#L296` |
-| K12 | `BrokerHeartbeatManager` fencing | `K/metadata/src/main/java/org/apache/kafka/controller/BrokerHeartbeatManager.java#L199-L246` |
-| K13 | `handleBrokerFenced` | `K/metadata/src/main/java/org/apache/kafka/controller/ReplicationControlManager.java#L1428` |
-| K14 | `metadata.max.idle.interval.ms`; controller registers the periodic `NoOpRecord` write | `K/raft/src/main/java/org/apache/kafka/raft/MetadataLogConfig.java#L75-L79`, `K/metadata/src/main/java/org/apache/kafka/controller/QuorumController.java#L1638-L1640` |
-| K15 | Snapshot and metadata-log defaults | `K/raft/src/main/java/org/apache/kafka/raft/MetadataLogConfig.java#L38-L95` |
-| K16 | Snapshot file names, metadata shell | `K/docs/operations/kraft.md#L119-L143` and `#L291-L316` |
-| K17 | Producer ID blocks | `K/server-common/src/main/java/org/apache/kafka/server/common/ProducerIdsBlock.java#L30`, `K/metadata/src/main/java/org/apache/kafka/controller/ProducerIdControlManager.java#L88-L118` |
+| K2 | Deploying considerations (2N+1, no combined mode) | `K/docs/operations/kraft.md#L318-L322` |
+| K3 | Broker heartbeat and session defaults | `K/raft/src/main/java/org/apache/kafka/raft/KRaftConfigs.java#L39-L44` |
+| K4 | Active session via heartbeats | `K/docs/design/design.md#L289-L298` |
+| K5 | Heartbeat tracking and fencing | `K/metadata/src/main/java/org/apache/kafka/controller/BrokerHeartbeatManager.java#L199-L246` |
+| K6 | `handleBrokerFenced` | `K/metadata/src/main/java/org/apache/kafka/controller/ReplicationControlManager.java#L1428` |
+| K7 | Controller elects from ISR, batches changes | `K/docs/design/design.md#L360-L364` |
+| K8 | Partition record fields | `K/metadata/src/main/resources/common/metadata/PartitionRecord.json#L16-L53`, `K/metadata/src/main/resources/common/metadata/PartitionChangeRecord.json#L16-L56` |
+| K9 | Brokers as observers fetching the metadata log | `K/raft/src/main/java/org/apache/kafka/raft/KafkaRaftClient.java#L130-L169` |
+| K10 | Periodic no-op record when idle | `K/raft/src/main/java/org/apache/kafka/raft/MetadataLogConfig.java#L75-L79`, `K/metadata/src/main/java/org/apache/kafka/controller/QuorumController.java#L1638-L1640` |
+| K11 | Producer requests metadata update on `InvalidMetadataException` | `K/clients/src/main/java/org/apache/kafka/clients/producer/internals/Sender.java#L713-L730`, `K/clients/src/main/java/org/apache/kafka/common/errors/NotLeaderOrFollowerException.java#L31` |
+| K12 | `metadata.max.age.ms` default | `K/clients/src/main/java/org/apache/kafka/clients/producer/ProducerConfig.java#L494` |
+| K13 | Unclean leader election | `K/docs/design/design.md#L337-L349` |
+| K14 | `unclean.leader.election.enable` default | `K/storage/src/main/java/org/apache/kafka/storage/internals/log/LogConfig.java#L138` |
+
+(P1 and P11 are lesson 1 sources and R16 is a lesson 4 source, reused here. The overview's ELR line cites `K/docs/operations/eligible-leader-replicas.md#L29-L37`; secondary: KIP-966 `https://cwiki.apache.org/confluence/x/mpOzDw`.)
 
 ### Self-check
 
-1. controller 3대와 5대는 각각 몇 대 장애를 견디나? → 1대, 2대(2N+1).
-2. broker는 metadata를 어떻게 받나? → observer로 `__cluster_metadata`를 Fetch해 따라간다. 투표는 하지 않는다.
-3. broker가 죽은 것을 controller가 아는 조건은? → `broker.session.timeout.ms`(9000 ms) 안에 `BrokerHeartbeat`가 오지 않을 때.
-4. KRaft Raft가 일반 Raft와 다른 점 하나는? → 복제가 leader push가 아니라 follower Fetch로 진행된다. 그래서 `BeginQuorumEpoch`로 새 leader를 알린다.
-5. ISR 변경은 어떤 레코드로 남나? → `PartitionChangeRecord`(바뀐 필드만 tagged로).
+1. broker가 죽은 뒤 failover 순서는? → heartbeat 끊김(9초) → fence → ISR에서 새 leader 선출 → broker 적용 → producer가 metadata 갱신 후 재시도.
+2. controller 3대와 5대는 각각 몇 대 장애를 견디나? → 1대, 2대(2N+1).
+3. producer는 새 leader를 어떻게 아나? → `NOT_LEADER_OR_FOLLOWER` 등 metadata 오류나 요청 실패를 받으면 metadata를 다시 받는다.
+4. failover 중 중복이 생기지 않는 이유는? → idempotent producer가 같은 sequence로 재시도하기 때문이다.
+5. ISR이 모두 죽으면 기본 동작은? → 파티션이 offline이 되고 ISR replica가 돌아올 때까지 기다린다.
 
 ---
 
 ## Decoder records
 
-Byte values below were computed for this plan (script logic: Kafka zig-zag varints for record fields, CRC-32C over `attributes`..end). Fields marked **E.G.** vary per run. The proportional-bar layers are named for each record.
+Only the fields an engineer reads in practice are in the tables. The rest of each structure is one line under the table. Byte values were computed for this plan (zig-zag varints, CRC-32C over `attributes`..end; the CRC code was checked against `crc32c("123456789") = 0xE3069283`). **E.G.** marks per-run values.
 
-### Decoder: record batch v2
+### Decoder: record batch
 
-One record (`key="order-42"`, `value={"id":42}`, no headers), uncompressed, idempotent, as written to disk. Total 85 bytes = `batchLength` 73 + 12. Header is 61 bytes (`RECORD_BATCH_OVERHEAD`).
+- Used by: L1 S8 (`wire: no`), L7 S4 (`wire: yes`, transactional variant).
+- One record (`key="order-42"`, `value={"id":42}`), uncompressed, idempotent, on disk. 85 B.
+- Layers: **Batch header** (0–60) · **Records** (61–84).
 
-Layers: **Log overhead** (0–11) · **Batch header** (12–60) · **Records** (61–84).
+| Offset | Field | Value | Hex | Why you read it |
+|---|---|---|---|---|
+| 0 | `baseOffset` | 1200 **E.G.** | `00 00 00 00 00 00 04 b0` | Offset of the first record |
+| 8 | `batchLength` | 73 | `00 00 00 49` | Batch size on disk − 12 |
+| 21 | `attributes` | 0 | `00 00` | Compression (bits 0–2), transactional (bit 4), control (bit 5) |
+| 23 | `lastOffsetDelta` | 0 | `00 00 00 00` | Last offset = base + delta |
+| 27 | `baseTimestamp` | 1793696400000 **E.G.** | `00 00 01 a1 a0 a3 02 80` | Used by time retention |
+| 43 | `producerId` | 4000 **E.G.** | `00 00 00 00 00 00 0f a0` | Which producer; -1 if not idempotent |
+| 51 | `producerEpoch` | 0 **E.G.** | `00 00` | Fencing |
+| 53 | `baseSequence` | 0 **E.G.** | `00 00 00 00` | Duplicate detection |
+| 57 | `recordsCount` | 1 | `00 00 00 01` | |
 
-| Offset | Field | Type | Value | Hex | Meaning |
-|---|---|---|---|---|---|
-| 0 | `baseOffset` | int64 | 1200 **E.G.** | `00 00 00 00 00 00 04 b0` | First offset in batch; producer sends 0, broker assigns |
-| 8 | `batchLength` | int32 | 73 | `00 00 00 49` | Bytes after this field to end of batch |
-| 12 | `partitionLeaderEpoch` | int32 | 3 **E.G.** | `00 00 00 03` | Set by leader; producer sends -1; not in CRC |
-| 16 | `magic` | int8 | 2 | `02` | Record batch format v2 |
-| 17 | `crc` | uint32 | `0xd00eeae0` (for these example bytes) | `d0 0e ea e0` | CRC-32C over `attributes`..end |
-| 21 | `attributes` | int16 | 0 | `00 00` | bits 0–2 codec=none, bit 3 CreateTime, bit 4 not txn, bit 5 not control, bit 6 no delete horizon |
-| 23 | `lastOffsetDelta` | int32 | 0 | `00 00 00 00` | Last record's offset − baseOffset |
-| 27 | `baseTimestamp` | int64 | 1793696400000 **E.G.** (2026-11-03T09:00:00Z) | `00 00 01 a1 a0 a3 02 80` | First record timestamp |
-| 35 | `maxTimestamp` | int64 | 1793696400000 **E.G.** | `00 00 01 a1 a0 a3 02 80` | Max record timestamp |
-| 43 | `producerId` | int64 | 4000 **E.G.** | `00 00 00 00 00 00 0f a0` | From `InitProducerId`; -1 if not idempotent |
-| 51 | `producerEpoch` | int16 | 0 **E.G.** | `00 00` | Producer epoch |
-| 53 | `baseSequence` | int32 | 0 **E.G.** | `00 00 00 00` | First sequence of this batch for the partition |
-| 57 | `recordsCount` | int32 | 1 | `00 00 00 01` | Number of records |
-| 61 | `records` | [Record] | 1 record, 24 B | see below | Compressed data starts here if compressed |
+Not shown: `partitionLeaderEpoch` (12), `magic=2` (16), `crc` (17, `d0 0e ea e0`), `maxTimestamp` (35). They are integrity and fencing fields that engineers do not read.
 
 Raw (85 B):
 ```
@@ -1149,174 +1292,170 @@ Raw (85 B):
 00 00 00 00 00 00 01 2e 00 00 00 10 6f 72 64 65 72 2d 34 32 12 7b 22 69 64 22 3a
 34 32 7d 00
 ```
-Teaching point for the decoder: the same batch as sent by the producer differs only in bytes 0–7 (`00…00`) and 12–15 (`ff ff ff ff`), and the CRC stays `d0 0e ea e0`, because neither field is covered by the CRC.
 
-Sources: [P15], `K/clients/src/main/java/org/apache/kafka/common/record/internal/DefaultRecordBatch.java#L104-L131`, [P17].
+Transactional variant (L7 S4): `attributes = 0x0010`, `producerId/epoch = 7001/4` (**E.G.**).
+
+Sources: [P14], `K/clients/src/main/java/org/apache/kafka/common/record/internal/DefaultRecordBatch.java#L104-L131`.
 
 ### Decoder: record
 
-Layers: **Length** · **Record header** · **Key** · **Value** · **Headers**.
+- Used by: L1 S2 (`wire: no`).
 
-| Offset (in record) | Field | Type | Value | Hex |
-|---|---|---|---|---|
-| 0 | `length` | varint (zig-zag) | 23 | `2e` |
-| 1 | `attributes` | int8 | 0 (unused) | `00` |
-| 2 | `timestampDelta` | varlong | 0 | `00` |
-| 3 | `offsetDelta` | varint | 0 | `00` |
-| 4 | `keyLength` | varint | 8 | `10` |
-| 5 | `key` | byte[] | `order-42` **E.G.** | `6f 72 64 65 72 2d 34 32` |
-| 13 | `valueLength` | varint | 9 | `12` |
-| 14 | `value` | byte[] | `{"id":42}` **E.G.** | `7b 22 69 64 22 3a 34 32 7d` |
-| 23 | `headersCount` | varint | 0 | `00` |
+| Field | Value | Hex |
+|---|---|---|
+| `length` | 23 | `2e` |
+| `timestampDelta` | 0 | `00` |
+| `offsetDelta` | 0 | `00` |
+| `key` (`keyLength` 8) | `order-42` **E.G.** | `10` + `6f 72 64 65 72 2d 34 32` |
+| `value` (`valueLength` 9) | `{"id":42}` **E.G.** | `12` + `7b 22 69 64 22 3a 34 32 7d` |
+| `headers` (count 0) | — | `00` |
 
-Header entries, when present: `headerKeyLength: varint`, `headerKey: String`, `headerValueLength: varint`, `Value: byte[]`. A null key or value is length -1 (zig-zag `01`).
-
-Sources: `K/docs/implementation/message-format.md#L133-L162`, `K/clients/src/main/java/org/apache/kafka/common/record/internal/DefaultRecord.java#L175-L215`, `K/clients/src/main/java/org/apache/kafka/common/utils/internals/ByteUtils.java#L467`.
+Not shown: `attributes` (unused). Lengths are zig-zag varints; a null value (tombstone) has length -1. Sources: `K/docs/implementation/message-format.md#L133-L162`, `K/clients/src/main/java/org/apache/kafka/common/record/internal/DefaultRecord.java#L175-L215`.
 
 ### Decoder: ProduceRequest
 
-`ProduceRequest` v13 with `RequestHeader` v2, carrying the 85-byte batch above. Total on the wire 143 bytes (4-byte size + 139). Flexible encoding: COMPACT_* lengths are `N+1` as unsigned varint, and every structure ends with a tagged-field count (`00` = none).
+- Used by: L1 S7 (`wire: yes`). 143 B on the wire.
+- Layers: **Size** · **Request header** · **Produce body** · **Record batch**.
 
-Layers: **Size** · **Request header** · **Produce body** · **Record batch**.
-
-| Field | Type | Value | Hex |
+| Field | Value | Hex | Why you read it |
 |---|---|---|---|
-| `message_size` | int32 | 139 | `00 00 00 8b` |
-| `RequestApiKey` | int16 | 0 (Produce) | `00 00` |
-| `RequestApiVersion` | int16 | 13 | `00 0d` |
-| `CorrelationId` | int32 | 7 **E.G.** | `00 00 00 07` |
-| `ClientId` | nullable string, **int16 length** (not compact, by schema rule) | `producer-1` **E.G.** | `00 0a 70 72 6f 64 75 63 65 72 2d 31` |
-| header tagged fields | uvarint | 0 | `00` |
-| `TransactionalId` | COMPACT_NULLABLE_STRING | null | `00` |
-| `Acks` | int16 | -1 | `ff ff` |
-| `TimeoutMs` | int32 | 30000 | `00 00 75 30` |
-| `TopicData` | COMPACT_ARRAY | 1 entry | `02` |
-| └ `TopicId` | uuid | 16 bytes **E.G.** | `…` |
-| └ `PartitionData` | COMPACT_ARRAY | 1 entry | `02` |
-| &nbsp;&nbsp;└ `Index` | int32 | 0 | `00 00 00 00` |
-| &nbsp;&nbsp;└ `Records` | COMPACT_RECORDS | 85 bytes | `56` + batch |
-| &nbsp;&nbsp;└ tagged fields | uvarint | 0 | `00` |
-| └ tagged fields | uvarint | 0 | `00` |
-| body tagged fields | uvarint | 0 | `00` |
+| `message_size` | 139 | `00 00 00 8b` | Frame length |
+| `RequestApiKey` | 0 (Produce) | `00 00` | Request type |
+| `CorrelationId` | 7 **E.G.** | `00 00 00 07` | Matches the response |
+| `ClientId` | `producer-1` **E.G.** | `00 0a 70 72 6f 64 75 63 65 72 2d 31` | Shows in broker logs and quotas |
+| `TransactionalId` | null | `00` | Set only for transactional producers |
+| `Acks` | -1 (all) | `ff ff` | Durability level |
+| `TimeoutMs` | 30000 | `00 00 75 30` | `request.timeout.ms` |
+| `TopicId` | `5zoAlv-xEh9xRANKXt1Lbg` **E.G.** | `e7 3a 00 96 ff b1 12 1f 71 44 03 4a 5e dd 4b 6e` | Target topic |
+| `Index` (partition) | 0 | `00 00 00 00` | Target partition |
+| `Records` | 85 B batch | `56` + batch | The record batch above |
 
-Size check: header 2+2+4+12+1 = 21; body 1+2+4+1+16+1+4+(1+85)+1+1+1 = 118; 21+118 = 139.
+Not shown: `RequestApiVersion` (13), and the compact length and tagged-field bytes (`00`, `02`). Version numbers and encoding details do not affect behavior.
 
-Sources: [P12], [P13], `K/docs/design/protocol.md#L141-L172`, `K/clients/src/main/java/org/apache/kafka/common/protocol/types/Type.java#L565` and `#L769` (COMPACT length N+1).
+Raw (143 B):
+```
+00 00 00 8b 00 00 00 0d 00 00 00 07 00 0a 70 72 6f 64 75 63 65 72 2d 31 00 00 ff
+ff 00 00 75 30 02 e7 3a 00 96 ff b1 12 1f 71 44 03 4a 5e dd 4b 6e 02 00 00 00 00
+56 00 00 00 00 00 00 00 00 00 00 00 49 ff ff ff ff 02 d0 0e ea e0 00 00 00 00 00
+00 00 00 01 a1 a0 a3 02 80 00 00 01 a1 a0 a3 02 80 00 00 00 00 00 00 0f a0 00 00
+00 00 00 00 00 00 00 01 2e 00 00 00 10 6f 72 64 65 72 2d 34 32 12 7b 22 69 64 22
+3a 34 32 7d 00 00 00 00
+```
+(Inside a request the producer's batch has `baseOffset = 0` and `partitionLeaderEpoch = -1`.)
+
+Sources: [P13], `K/docs/design/protocol.md#L141-L172`; TopicId from `K/docs/operations/kraft.md#L301-L311`.
 
 ### Decoder: FetchRequest
 
-`FetchRequest` v18 from a consumer, first fetch of a new session, one partition. Field list only plus sizes, because the TopicId and RackId vary.
+- Used by: L2 S7 (`wire: yes`, consumer), L4 S2 (`wire: yes`, follower). A field table only.
 
-| Field | Type | Value |
+| Field | Consumer (L2 S7) | Follower (L4 S2) | Why you read it |
+|---|---|---|---|
+| `ReplicaState.ReplicaId` | absent (consumer) | 2 | Consumer vs follower: decides HW vs LEO limit |
+| `MaxWaitMs` | 500 (`fetch.max.wait.ms`) | 500 (`replica.fetch.wait.max.ms`) | Long-poll wait |
+| `MinBytes` | 1 (`fetch.min.bytes`) | — | Long-poll threshold |
+| `IsolationLevel` | 0 (read_uncommitted) | 0 | HW vs LSO limit |
+| `FetchOffset` | 1237 **E.G.** | 100 **E.G.** (= follower LEO) | Where to read from |
+| `PartitionMaxBytes` | 1048576 (`max.partition.fetch.bytes`) | 1048576 (`replica.fetch.max.bytes`) | Per-partition cap |
+
+Not shown: session id/epoch, `CurrentLeaderEpoch`, `LastFetchedEpoch`, `LogStartOffset`, `RackId`, tagged fields. Sources: [L12], [L13], [R3].
+
+### Decoder: ConsumerGroupHeartbeatRequest
+
+- Used by: L5 S8 (`wire: yes`). A field table only.
+
+| Field | Value | Why you read it |
 |---|---|---|
-| Header | RequestHeader v2 | `RequestApiKey=1`, `RequestApiVersion=18`, `CorrelationId` **E.G.**, `ClientId` **E.G.** |
-| `ClusterId` | tagged 0 | absent |
-| `ReplicaState` | tagged 1 | absent (consumer); a follower sets `ReplicaId`, `ReplicaEpoch` |
-| `MaxWaitMs` | int32 | 500 (`fetch.max.wait.ms`) |
-| `MinBytes` | int32 | 1 (`fetch.min.bytes`) |
-| `MaxBytes` | int32 | 52428800 (`fetch.max.bytes`) |
-| `IsolationLevel` | int8 | 0 = READ_UNCOMMITTED, 1 = READ_COMMITTED |
-| `SessionId` | int32 | 0 (no session yet) |
-| `SessionEpoch` | int32 | 0 (`INITIAL_EPOCH`: create a session); -1 = `FINAL_EPOCH` |
-| `Topics[].TopicId` | uuid | **E.G.** |
-| `Partitions[].Partition` | int32 | 0 |
-| `Partitions[].CurrentLeaderEpoch` | int32 | 3 **E.G.** |
-| `Partitions[].FetchOffset` | int64 | 1237 **E.G.** |
-| `Partitions[].LastFetchedEpoch` | int32 | -1 |
-| `Partitions[].LogStartOffset` | int64 | -1 (only followers send it) |
-| `Partitions[].PartitionMaxBytes` | int32 | 1048576 (`max.partition.fetch.bytes`) |
-| `Partitions[].HighWatermark` | tagged 1 (v18) | absent → default `9223372036854775807` |
-| `ForgottenTopicsData` | COMPACT_ARRAY | empty |
-| `RackId` | COMPACT_STRING | `""` (`client.rack` unset) |
+| `GroupId` | `order-svc` **E.G.** | Which group |
+| `MemberId` | client-generated **E.G.** | Which member |
+| `MemberEpoch` | 0 (join; -1 leave) | Member's place in the group epoch |
+| `SubscribedTopicNames` | `[orders]` | Subscription; a change triggers reassignment |
+| `TopicPartitions` | `[]` | Partitions the member owns; removing them completes a revoke |
 
-Sources: [L15], [L16], `K/clients/src/main/java/org/apache/kafka/common/requests/FetchMetadata.java#L31-L43`.
-
-### Decoder: offset index entry
-
-| Offset | Field | Type | Value | Hex |
-|---|---|---|---|---|
-| 0 | relative offset | int32 | 37 **E.G.** (absolute 1061 if base 1024) | `00 00 00 25` |
-| 4 | position | int32 | 4182 **E.G.** | `00 00 10 56` |
-
-Time index entry (12 B): `timestamp: int64` + `relative offset: int32`.
-
-Sources: [L8], [L9].
+Not shown: `InstanceId`, `RackId`, `RebalanceTimeoutMs`, `SubscribedTopicRegex`, `ServerAssignor`. Sources: [G10].
 
 ### Decoder: offset commit record
 
-The record that `OffsetCommit` writes to `__consumer_offsets`. Key and value are each the `key`/`value` bytes of a normal record (see "Decoder: record").
+- Used by: L6 S3 (`wire: no`). The key and value of one record in `__consumer_offsets`.
 
-Key (`OffsetCommitKey` v0, non-flexible, type-prefixed):
-
-| Field | Type | Value | Hex |
+| Part | Field | Value | Hex |
 |---|---|---|---|
-| type prefix | int16 | 1 (OffsetCommit) | `00 01` |
-| `group` | string (int16 len) | `order-svc` **E.G.** | `00 09 6f 72 64 65 72 2d 73 76 63` |
-| `topic` | string (int16 len) | `orders` **E.G.** | `00 06 6f 72 64 65 72 73` |
-| `partition` | int32 | 0 | `00 00 00 00` |
+| key | `group` | `order-svc` **E.G.** | `00 09 6f 72 64 65 72 2d 73 76 63` |
+| key | `topic` | `orders` **E.G.** | `00 06 6f 72 64 65 72 73` |
+| key | `partition` | 0 | `00 00 00 00` |
+| value | `offset` | 1240 **E.G.** | `00 00 00 00 00 00 04 d8` |
+| value | `leaderEpoch` | 3 **E.G.** | `00 00 00 03` |
+| value | `metadata` | `""` | `01` |
+| value | `commitTimestamp` | 1793696405000 **E.G.** | `00 00 01 a1 a0 a3 16 08` |
 
-Value (`OffsetCommitValue` v4, flexible, version-prefixed):
+Not shown: the key's type prefix `00 01`, the value's version prefix `00 04`, and the tagged `topicId`. Sources: [O4], `K/group-coordinator/src/main/java/org/apache/kafka/coordinator/group/GroupCoordinatorRecordHelpers.java#L470-L503`.
 
-| Field | Type | Value | Hex |
-|---|---|---|---|
-| version prefix | int16 | 4 | `00 04` |
-| `offset` | int64 | 1237 **E.G.** | `00 00 00 00 00 00 04 d5` |
-| `leaderEpoch` | int32 | 3 **E.G.** (-1 if unknown) | `00 00 00 03` |
-| `metadata` | COMPACT_STRING | `""` | `01` |
-| `commitTimestamp` | int64 | 1793696405000 **E.G.** | `00 00 01 a1 a0 a3 16 08` |
-| tagged fields | uvarint count + (tag 0 `topicId` uuid if set) | 1 field **E.G.** | `01 00 10` + 16 B |
+### Decoder: TransactionLogValue
 
-`expireTimestamp` exists only in value v1. A tombstone (offset delete) is a null value.
+- Used by: L7 S5 (`wire: no`). A field table only.
 
-Sources: [G20], [G21], [G22].
-
-Tagged-field framing (`count`, then per field `tag`, `size`, data; a uuid has fixed size 16, so `01 00 10` + 16 B) follows the message generator: `K/generator/src/main/java/org/apache/kafka/message/MessageDataGenerator.java#L827-L896`. A tagged field equal to its default is not written.
-
-### Decoder: PartitionChangeRecord
-
-`PartitionChangeRecord` v2 (apiKey 5) for "ISR shrinks to [1,2]", framed as a metadata record.
-
-| Field | Type | Value |
+| Field | Value | Why you read it |
 |---|---|---|
-| frame version | uvarint | 1 |
-| apiKey | uvarint | 5 |
-| version | uvarint | 2 |
-| `PartitionId` | int32 | 0 |
-| `TopicId` | uuid | **E.G.** `5zoAlv-xEh9xRANKXt1Lbg` (base64 form from the docs example) |
-| tagged 0 `Isr` | []int32 | [1, 2] |
-| tagged 1 `Leader` | int32 | absent → -2 (unchanged) |
-| tagged 5 `LeaderRecoveryState` | int8 | absent → -1 (unchanged) |
-| tagged 6 `EligibleLeaderReplicas` | []int32 | absent → null (unchanged), or [3] with ELR |
+| `ProducerId` / `ProducerEpoch` | 7001 / 4 **E.G.** | Which producer instance owns the transaction |
+| `TransactionStatus` | 1 (ONGOING) | Where the transaction is |
+| `TransactionPartitions` | `payments: [0, 1]` | Who will get markers |
+| `TransactionTimeoutMs` | 60000 | When the coordinator aborts it |
+| `TransactionStartTimestampMs` | **E.G.** | How long it has been open |
 
-Sources: [K8], [K7], [K16].
+Not shown: previous/next producer id and epoch, `ClientTransactionVersion`, last-update timestamp. Sources: [T10].
 
-### Decoder: control record (transaction marker)
+### Decoder: control batch
 
-| Part | Field | Type | Value |
+- Used by: L7 S10 (`wire: no`).
+
+| Part | Field | Value |
+|---|---|---|
+| batch | `attributes` | `0x0030` (transactional + control) |
+| batch | `producerId` / `producerEpoch` | 7001 / 4 **E.G.** |
+| record key | `type` | 1 = COMMIT (0 = ABORT) |
+
+Not shown: key `version` (0), value (`CoordinatorEpoch`). Key bytes for COMMIT are `00 00 00 01`. Sources: [T6], `K/clients/src/main/resources/common/message/EndTxnMarker.json#L16-L26`.
+
+### Decoder: partition state
+
+- Used by: L8 S4 (`wire: no`). The partition record as `kafka-metadata-shell.sh` prints it (docs example values), showing what changes at failover.
+
+| Field | Before (E.G.) | After (E.G.) | Why you read it |
 |---|---|---|---|
-| batch | `attributes` | int16 | `0x0030` (bit 4 transactional, bit 5 control) |
-| batch | `producerId`, `producerEpoch` | int64, int16 | of the transaction, **E.G.** |
-| record key | `version` | int16 | 0 |
-| record key | `type` | int16 | 1 = COMMIT (0 = ABORT) |
-| record value | version prefix | int16 | 0 |
-| record value | `CoordinatorEpoch` | int32 | **E.G.** 12 (coordinator epoch when the marker was appended) |
+| `leader` | 2 | 1 | Where clients send produce and fetch |
+| `leaderEpoch` | 8 | 9 | Fences the old leader |
+| `replicas` | [1, 2] | [1, 2] | Assignment; does not change at failover |
+| `isr` | [1, 2] | [1] | Who can be the next leader |
 
-Key bytes for COMMIT: `00 00 00 01`. Value bytes: `00 00` + 4-byte coordinator epoch. Clients treat the value as opaque.
-
-Sources: [T10], `K/clients/src/main/resources/common/message/EndTxnMarker.json#L16-L26`, `K/clients/src/main/java/org/apache/kafka/common/record/internal/EndTransactionMarker.java#L45-L46`.
+Not shown: `partitionEpoch`, `removingReplicas`, `addingReplicas`, `directories`, ELR fields. Sources: [K8], `K/docs/operations/kraft.md#L301-L311`.
 
 ---
 
+## Cut by must-know rule
+
+| Cut | From | Why |
+|---|---|---|
+| Raft internals: Vote, PreVote, `BeginQuorumEpoch`, election timeouts, voter fetch, snapshots and checkpoint file names, metadata record framing, `NoOpRecord` | old KRaft lesson (S2–S5, S8) | Operators do not tune or debug these. Lesson 8 now teaches broker failover, which is what incidents involve. "Quorum of 2N+1" stays. |
+| Producer-id block allocation | old KRaft S9 | Internal constant; no behavior an engineer acts on. |
+| ELR steps and record fields | old replication S13, decoders | Brand-new and automatic. Kept as one line in the lesson 8 overview. |
+| API keys and version ranges (`Produce v3–13`, API key numbers, flexible versions), `RequestApiVersion` | all lessons, decoders | Version tables do not change behavior. API names stay. |
+| `linger.ms` 0 → 5 history, idempotence fallback history, transaction v1 vs v2 differences (`AddPartitionsToTxn`, `AddOffsetsToTxn`) | lessons 1 and 7 | Version history. Only current behavior is taught. |
+| CRC computation, `partitionLeaderEpoch`, `magic`, compact encodings, tagged-field framing, coordinator key/value version prefixes | decoders | Encoding trivia; listed in one "Not shown" line per decoder. |
+| `BufferPool` sizing, adaptive partitioner flags, `partitioner.ignore.keys`, retry backoff values, sequence wraparound | lesson 1 | Exotic config and internal constants. |
+| Time index details, index file sizing (`log.index.size.max.bytes`), `.txnindex`/`.snapshot` files, segment delete delay, recovery threads, TLS 32 KiB buffer | lesson 2 | Internal constants. Crash recovery is one overview line, and TLS is one fact. |
+| Offset index entry decoder | lesson 2 | The lookup step shows the entry; byte layout adds nothing. |
+| Cleaner OffsetMap 24 B/entry, load factor, I/O throttle, cleaner backoff, idempotent/transaction compaction rules as a step | lesson 3 | Internal constants; transaction rules moved to one overview line. |
+| Maximal ISR, `DivergingEpoch` truncation, `LeaderRecoveryState`, HW checkpoint interval, purgatory naming | lesson 4 | Internals behind the rule; the rule (HW = min ISR LEO, strict min ISR) stays. |
+| Server-side assignor plug-in interface, regex subscription, KIP-848 timeline, `UNRELEASED_PARTITIONS` detail | lesson 5 | Niche. Two KIP-848 steps stay because `group.protocol=consumer` is a real choice now. |
+| EndTxn decoder, `TransactionLogValue` tagged fields, TV2 server retry configs (`add.partitions.to.txn.retry.*`), coordinator state numbers, `COMPLETE_COMMIT` as a step | lesson 7 | Engineers do not read these bytes or tune these configs. `COMPLETE_COMMIT` is one overview line. |
+| Share groups, tiered storage, quotas | whole topic | Niche or brand-new for this owner; not on the critical paths. |
+
 ## Open questions
 
-1. **Release check.** kafka.apache.org was not reachable, so "4.4.0 is the current release" rests on the git tags and the tag's `gradle.properties`, not on the downloads page. Re-check from a session that can reach kafka.apache.org, and record the rendered doc URL form (for example `https://kafka.apache.org/44/...`) if the owner prefers rendered pages.
-2. **KIP pages unread.** KIP-98 (transactions), KIP-848, KIP-890, KIP-966, KIP-482 (tagged fields), KIP-320 (leader epoch fencing), KIP-345 (static membership), KIP-996 (pre-vote) and KIP-853 (dynamic quorum) were not readable. Every fact attributed to them here comes from the 4.4.0 docs or code instead. Add KIP links as secondary sources once cwiki is reachable.
-3. **Lesson 4 size.** Lesson 4 has 14 steps and covers classic and KIP-848 rebalance plus offset commit. DESIGN says "one mechanism per lesson". If the scene feels crowded, split it into `consumer-rebalance` (S1–S9, S13–S14) and `offset-commit` (S10–S12).
-4. **Network/sequence view.** Timestamps on the sequence axis are all **E.G.**; real latencies depend on hardware. Should the event log show relative ms (`+5 ms`) instead of wall-clock?
-5. **Share groups (KIP-932)** appear in the 4.4.0 design doc ("The Share Consumer"). They are out of scope here. Do we want a later lesson?
-6. **Tiered storage** (`local.retention.*`, `OffsetMovedToTieredStorageException` in Fetch v14) is out of scope for lesson 2. Is it a later lesson?
+1. **KIP pages.** This session cannot reach cwiki.apache.org. KIP-848, 890, 966, and 1030 are the short links printed in the 4.4.0 docs. KIP-996 (pre-vote) is no longer cited, because Raft internals were cut.
+2. **"Path" marking.** Steps carry `critical` or `side`. The engine session should decide how `side` steps look and whether the replay skips them (this plan's Replay lines skip them).
+3. **Comparison steps.** Lesson 1 S11 (reordering) and lesson 5 S7 (cooperative vs eager) show alternatives to the main timeline. Should they get a "compare" marker?
 
 ## Facts I could not verify
 
-- That `TxnOffsetCommit` offsets stay invisible to `OffsetFetch` until commit at the code level (lesson 5, S7): stated by the design doc in prose, not traced in `GroupMetadataManager`/`OffsetMetadataManager`.
-- KIP-848 "no global synchronization barrier" and "fully incremental" are quoted from the 4.4.0 doc; I did not check the latency claims behind them.
+- None outstanding in the kept content. Every kept fact cites a 4.4.0 doc or code line read in this session. Two items from revision 2 were left out instead of being verified: follower Fetch `MinBytes`/`MaxBytes` defaults, and the `RebalanceTimeoutMs` mapping.
