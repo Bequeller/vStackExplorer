@@ -15,12 +15,14 @@ Lessons whose closing self-check the owner passes without the page open (explain
 
 ## Scope
 
-- Topics ordered by interview value. First wave:
+- Topics ordered by interview value. First wave (research plans in `docs/research/`, reviewed 2026-11-04, decision 0010):
   1. Spring Boot: HTTP request flow (Filter chain → `DispatcherServlet` → handler → response), `@Transactional` proxy, bean lifecycle, auto-configuration.
-  2. MySQL InnoDB: B+Tree index and page split, buffer pool, redo/undo log, MVCC read view, record/gap/next-key locks.
-  3. EKS: control plane and data plane, Pod scheduling, VPC CNI and ENI/IP assignment, Service and load balancer path.
-- Later topics follow the same format (for example Kafka, Redis, TLS, JVM GC).
-- Each lesson: an animated scene, a step list, a detail panel with facts, a decoded-record panel, and a closing self-check.
+  2. MySQL InnoDB: B+Tree index (including composite index, leftmost prefix, and how EXPLAIN reads it) and page split, buffer pool, redo/undo log, binlog–redo two-phase commit, isolation levels and phantom reads, MVCC read view, record/gap/next-key locks, deadlock.
+  3. Kafka: producer send path, broker log, replication (ISR, high watermark), consumer rebalance, offset commit and consumer lag, ordering guarantees, log compaction, transactions, KRaft.
+  4. Redis: command path and I/O threads, encodings, expiration, eviction, cache stampede and locks, MULTI/Lua atomicity, big keys and `UNLINK`, RDB, AOF, replication, Sentinel, Cluster.
+  5. EKS: control plane and node join, `kubectl apply` request path, scheduling and constraints (requests/limits, taints, affinity, QoS), Pod lifecycle (probes, rolling update, graceful shutdown with load balancer deregistration), VPC CNI and ENI/IP assignment, Service and load balancer path, IRSA, Pod Identity, autoscaling.
+- Later topics follow the same format (for example TLS, JVM GC).
+- Each lesson: one mechanism, about 8 to 12 steps, an animated scene, a step list, a detail panel with facts, a decoded-record panel, and a closing self-check.
 - Light and dark themes, keyboard control, and phone-width layout.
 
 ## Non-goals
