@@ -6,11 +6,11 @@ import type { Lesson, Step } from '../src/lessons/types';
 
 const source = [{ url: 'https://example.org/doc', version: '1.0', label: 'doc' }];
 const lesson: Pick<Lesson, 'states' | 'steps'> = {
-  states: [{ node: 'b', title: 'pool', x: 0, y: 0, width: 100, view: { type: 'list', items: ['idle'] } }],
+  states: [{ node: 'b', title: 'pool', view: { type: 'list', items: ['idle'] } }],
   steps: [
-    { id: 's1', kind: 'move', from: 'a', to: 'b', token: { kind: 'request', label: 'GET /' }, title: 'one', summary: 'one', detail: 'one', facts: [], sources: source },
-    { id: 's2', kind: 'mutate', node: 'b', after: { type: 'list', items: ['busy'] }, title: 'two', summary: 'two', detail: 'two', facts: [], sources: source },
-    { id: 's3', kind: 'move', from: 'b', to: 'a', token: { kind: 'response', label: '200' }, title: 'three', summary: 'three', detail: 'three', facts: [], sources: source },
+    { id: 's1', layer: 'l', kind: 'move', from: 'a', to: 'b', token: { kind: 'request', label: 'GET /' }, title: 'one', summary: 'one', detail: 'one', facts: [], sources: source },
+    { id: 's2', layer: 'l', kind: 'mutate', node: 'b', after: { type: 'list', items: ['busy'] }, title: 'two', summary: 'two', detail: 'two', facts: [], sources: source },
+    { id: 's3', layer: 'l', kind: 'move', from: 'b', to: 'a', token: { kind: 'response', label: '200' }, title: 'three', summary: 'three', detail: 'three', facts: [], sources: source },
   ],
 };
 const timings: PlayerTimings = { move: 100, mutate: 50, dwell: 200 };
@@ -52,7 +52,7 @@ interface Drawn {
 
 class RecordingScene implements SceneDriver {
   readonly calls: Drawn[] = [];
-  begin(step: Step, before: NodeStates, after: NodeStates): void {
+  begin(step: Step, _index: number, before: NodeStates, after: NodeStates): void {
     this.calls.push({ step: step.id, before, after });
   }
   update(step: Step, t: number): void {
@@ -145,6 +145,22 @@ describe('engine playback', () => {
     player.seek(2);
     const later = scene.calls.find((c) => c.step === 's3' && c.before);
     expect(later?.before?.b).toEqual({ type: 'list', items: ['busy'] });
+  });
+
+  it('at 2× speed, a step animates in half the time', () => {
+    const { clock, scene, player } = setup();
+    player.setSpeed(2);
+    player.seek(0);
+    clock.advance(60);
+    expect(scene.lastT('s1')).toBe(1);
+    expect(player.state.speed).toBe(2);
+  });
+
+  it('restart goes back to the first step', () => {
+    const { player } = setup();
+    player.seek(2);
+    player.restart();
+    expect(player.state.index).toBe(0);
   });
 
   it('with reduced motion, draws each step final frame at once', () => {

@@ -22,16 +22,38 @@ export type NodeKind =
   | 'app' // code the application developer writes: controller, service
   | 'storage'; // persistent state: disk, table, log
 
-/** A component on the scene. x and y are the center, in scene units. */
+/** Which isometric illustration the scene draws for a node. */
+export type IconKind =
+  | 'laptop' // a client machine
+  | 'server' // a server or container process, e.g. Tomcat
+  | 'filter-stack' // a chain of filters or interceptors
+  | 'hub' // a central dispatcher, e.g. DispatcherServlet
+  | 'index' // a lookup table, e.g. HandlerMapping
+  | 'adapter' // something that adapts one call shape to another
+  | 'converter' // something that turns bytes into objects or back
+  | 'controller' // a web controller
+  | 'service' // a service bean
+  | 'repository' // a repository or DAO
+  | 'database' // a database
+  | 'k8s-node'; // a Kubernetes node
+
+/** A component on the scene. x and y are the base center of the illustration, in scene units. */
 export interface SceneNode {
   id: string;
-  /** Short label drawn in the box. Keep it under ~22 characters. */
+  /** Short name under the illustration. Keep it under ~20 characters. */
   label: string;
-  /** Optional second line, for example the class or bean name. */
+  /** Optional second line, for example the class or method. */
   sublabel?: string;
   kind: NodeKind;
+  icon: IconKind;
   x: number;
   y: number;
+}
+
+/** A group of steps shown in the layer selector and the event log, e.g. "Servlet", "Spring MVC". */
+export interface Layer {
+  id: string;
+  label: string;
 }
 
 /** A table of rows, for example a filter chain or a lock table. */
@@ -49,14 +71,13 @@ export interface ListView {
 
 export type StateView = TableView | ListView;
 
-/** The state panel drawn for one node, and its initial content. */
+/**
+ * A node's inner state and its initial content. It is not drawn on the scene: the node gets
+ * a badge when a `mutate` step changes it, and the view opens in the step details.
+ */
 export interface NodeState {
   node: string;
   title: string;
-  /** Top-left corner and width of the panel, in scene units. */
-  x: number;
-  y: number;
-  width: number;
   view: StateView;
 }
 
@@ -74,29 +95,57 @@ export interface Fact {
   value: string;
 }
 
+/** One part of a message, shown as a band in the decoder's layer bar (e.g. request line, headers, body). */
+export interface RecordSegment {
+  id: string;
+  label: string;
+}
+
 /** One decoded field of a record, with its real field name. */
 export interface RecordField {
   name: string;
   value: string;
-  note?: string;
+  /** One-line meaning. */
+  note: string;
+  /** The `RecordSegment` id this field belongs to. */
+  segment: string;
+  /**
+   * The exact text of this field inside `raw`. Fields are matched in order, each after the
+   * previous one, so the decoder can link a field to its bytes. Omit for derived fields.
+   */
+  span?: string;
+  /** True when the value changes per run (a date, an id). The decoder tags it "E.G.". */
+  example?: boolean;
 }
 
 /** A decoded structure shown field by field: an HTTP message, a record header, a Pod spec. */
 export interface DecodedRecord {
   title: string;
-  /** The raw form, shown verbatim above the fields (optional). */
-  raw?: string;
+  /** The protocol or format, e.g. "HTTP/1.1", "JSON", "Java object". */
+  protocol: string;
+  /**
+   * The raw form. When `wire` is true it is the exact bytes as text (use \r\n for CRLF),
+   * and the decoder shows its size in bytes. Otherwise it is a readable dump.
+   */
+  raw: string;
+  wire: boolean;
+  segments: RecordSegment[];
   fields: RecordField[];
 }
 
 interface StepBase {
   id: string;
+  /** The `Layer` id this step belongs to. */
+  layer: string;
   title: string;
-  /** One line shown in the step list. */
+  /** One line under the title, also used in the event log's info column. */
   summary: string;
-  /** Korean prose. Separate paragraphs with a blank line. Wrap code in `backticks`. */
+  /** Korean prose, about 5 lines (at most 320 characters). Longer explanations go in `overview`. */
   detail: string;
+  /** 2 to 4 rows. */
   facts: Fact[];
+  /** Key lines of the current message, shown in the message card (at most 4). */
+  lines?: string[];
   record?: DecodedRecord;
   /** At least one. Every fact in the step must be backed by one of these. */
   sources: Source[];
@@ -119,6 +168,14 @@ export interface MutateStep extends StepBase {
 
 export type Step = MoveStep | MutateStep;
 
+/** A lesson-level explanation, opened from the "Overview" button. */
+export interface OverviewSection {
+  title: string;
+  /** Korean prose. Blank lines split paragraphs. */
+  body: string;
+  sources: Source[];
+}
+
 export interface SelfCheckItem {
   question: string;
   answer: string;
@@ -130,14 +187,18 @@ export interface Lesson {
   /** Must equal the topic folder name. */
   topic: string;
   title: string;
+  /** One line, shown in the topic drawer. */
+  subtitle: string;
   summary: string;
   /** Must equal the topic's meta.versions. */
   versions: Record<string, string>;
-  /** Scene size in scene units (the SVG viewBox). */
+  /** World size in scene units; the camera frames parts of it. */
   scene: { width: number; height: number };
+  layers: Layer[];
   nodes: SceneNode[];
   states: NodeState[];
   steps: Step[];
+  overview: OverviewSection[];
   selfCheck: SelfCheckItem[];
 }
 
@@ -146,8 +207,10 @@ export interface TopicMeta {
   /** Must equal the folder name. */
   topic: string;
   title: string;
+  /** Drawer tab this topic belongs to, e.g. "Spring", "MySQL", "EKS". */
+  group: string;
   summary: string;
-  /** Position on the home page; lower comes first (docs/PRODUCT.md orders topics by interview value). */
+  /** Position in the drawer; lower comes first (docs/PRODUCT.md orders topics by interview value). */
   order: number;
   /** Pinned versions, checked against the official site on `checkedOn`. */
   versions: Record<string, string>;

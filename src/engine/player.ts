@@ -22,11 +22,16 @@ export interface PlayerOptions {
   timings?: PlayerTimings;
 }
 
+/** Playback speeds offered by the player controls. */
+export const speeds = [0.5, 1, 2] as const;
+
 export interface PlayerState {
   /** Current step, 0-based. */
   index: number;
   total: number;
   playing: boolean;
+  /** Speed multiplier: 2 plays twice as fast. */
+  speed: number;
   /** True while the current step's animation runs. */
   animating: boolean;
 }
@@ -51,6 +56,7 @@ export class Player {
   private phase: Phase = 'idle';
   private phaseStart = 0;
   private frameHandle: number | null = null;
+  private speed = 1;
 
   constructor(
     lesson: Pick<Lesson, 'states' | 'steps'>,
@@ -71,6 +77,7 @@ export class Player {
       index: this.index,
       total: this.steps.length,
       playing: this.playing,
+      speed: this.speed,
       animating: this.phase === 'animating',
     };
   }
@@ -92,7 +99,7 @@ export class Player {
     this.index = this.clamp(index);
     const step = this.currentStep();
     const before = this.index === 0 ? this.initial : this.statesAfter(this.index - 1);
-    this.scene.begin(step, before, this.statesAfter(this.index));
+    this.scene.begin(step, this.index, before, this.statesAfter(this.index));
     if (this.reducedMotion()) {
       this.scene.update(step, 1);
       this.enterAfterAnimation();
@@ -138,6 +145,21 @@ export class Player {
     else this.play();
   }
 
+  /** Changes how fast steps animate and advance. Takes effect from the next frame. */
+  setSpeed(speed: number): void {
+    if (!(speed > 0) || speed === this.speed) return;
+    // Keep the current phase's progress: rescale the elapsed time to the new speed.
+    const now = this.clock.now();
+    this.phaseStart = now - ((now - this.phaseStart) * this.speed) / speed;
+    this.speed = speed;
+    this.emit();
+  }
+
+  /** Go back to the first step. */
+  restart(): void {
+    this.seek(0);
+  }
+
   destroy(): void {
     this.cancelFrame();
     this.listeners.clear();
@@ -155,7 +177,7 @@ export class Player {
   }
 
   private duration(step: Step): number {
-    return step.kind === 'move' ? this.timings.move : this.timings.mutate;
+    return (step.kind === 'move' ? this.timings.move : this.timings.mutate) / this.speed;
   }
 
   private setPhase(phase: Exclude<Phase, 'idle'>): void {
@@ -201,7 +223,7 @@ export class Player {
       return;
     }
     if (this.phase === 'dwell') {
-      if (elapsed < this.timings.dwell) {
+      if (elapsed < this.timings.dwell / this.speed) {
         this.requestFrame();
         return;
       }

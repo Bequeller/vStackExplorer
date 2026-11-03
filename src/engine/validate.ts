@@ -1,4 +1,14 @@
-import type { Lesson, Source, StateView, TopicMeta } from '../lessons/types';
+import type { DecodedRecord, Lesson, Source, StateView, TopicMeta } from '../lessons/types';
+import { layoutRecord } from './record';
+
+/** Limits from docs/DESIGN.md (step-details panel). */
+export const limits = {
+  detailChars: 320,
+  summaryChars: 90,
+  minFacts: 2,
+  maxFacts: 4,
+  maxLines: 4,
+} as const;
 
 /**
  * Checks a lesson against the schema rules that types cannot express.
@@ -12,7 +22,7 @@ export function validateLesson(lesson: Lesson, meta?: TopicMeta): string[] {
 
   findFunctions(lesson, 'lesson', (path) => at(path, 'lessons are data and must not contain functions'));
 
-  for (const key of ['id', 'topic', 'title', 'summary'] as const) {
+  for (const key of ['id', 'topic', 'title', 'subtitle', 'summary'] as const) {
     if (!nonEmpty(lesson[key])) at(key, 'is empty');
   }
   if (!/^[a-z0-9-]+$/.test(lesson.id)) at('id', 'use lowercase letters, digits, and hyphens');
@@ -24,6 +34,9 @@ export function validateLesson(lesson: Lesson, meta?: TopicMeta): string[] {
     if (!meta.lessons.includes(lesson.id)) at('id', "is not listed in the topic's meta.lessons");
   }
 
+  const layerIds = new Set((lesson.layers ?? []).map((l) => l.id));
+  if (layerIds.size === 0) at('layers', 'needs at least one layer');
+
   const nodeIds = new Set<string>();
   for (const node of lesson.nodes ?? []) {
     if (nodeIds.has(node.id)) at(`node ${node.id}`, 'duplicate node id');
@@ -31,12 +44,13 @@ export function validateLesson(lesson: Lesson, meta?: TopicMeta): string[] {
     if (!inside(node.x, lesson.scene.width) || !inside(node.y, lesson.scene.height)) {
       at(`node ${node.id}`, 'position is outside the scene');
     }
+    if (!nonEmpty(node.icon)) at(`node ${node.id}`, 'needs an icon');
   }
 
   const stateViews = new Map<string, StateView>();
   for (const state of lesson.states ?? []) {
     if (!nodeIds.has(state.node)) at(`state ${state.node}`, 'refers to an unknown node');
-    if (stateViews.has(state.node)) at(`state ${state.node}`, 'a node has at most one state panel');
+    if (stateViews.has(state.node)) at(`state ${state.node}`, 'a node has at most one state view');
     stateViews.set(state.node, state.view);
     checkView(state.view, (m) => at(`state ${state.node}`, m));
   }
@@ -50,16 +64,20 @@ export function validateLesson(lesson: Lesson, meta?: TopicMeta): string[] {
     for (const key of ['id', 'title', 'summary', 'detail'] as const) {
       if (!nonEmpty(step[key])) at(where, `${key} is empty`);
     }
-    for (const fact of step.facts ?? []) {
+    if (!layerIds.has(step.layer)) at(where, `layer "${step.layer}" is not one of the lesson's layers`);
+    if ((step.detail ?? '').length > limits.detailChars) {
+      at(where, `detail is ${step.detail.length} characters; keep it under ${limits.detailChars} and move the rest to overview`);
+    }
+    if ((step.summary ?? '').length > limits.summaryChars) at(where, `summary is longer than ${limits.summaryChars} characters`);
+    const facts = step.facts ?? [];
+    if (facts.length < limits.minFacts || facts.length > limits.maxFacts) {
+      at(where, `has ${facts.length} facts; use ${limits.minFacts} to ${limits.maxFacts}`);
+    }
+    for (const fact of facts) {
       if (!nonEmpty(fact.key) || !nonEmpty(fact.value)) at(where, 'a fact needs a key and a value');
     }
-    if (step.record) {
-      if (!nonEmpty(step.record.title)) at(where, 'record title is empty');
-      if (!step.record.fields?.length) at(where, 'record needs at least one field');
-      for (const field of step.record.fields ?? []) {
-        if (!nonEmpty(field.name) || !nonEmpty(field.value)) at(where, 'a record field needs a name and a value');
-      }
-    }
+    if ((step.lines?.length ?? 0) > limits.maxLines) at(where, `lines has more than ${limits.maxLines} entries`);
+    if (step.record) checkRecord(step.record, (m) => at(where, m));
     checkSources(step.sources, (m) => at(where, m));
 
     if (step.kind === 'move') {
@@ -70,15 +88,22 @@ export function validateLesson(lesson: Lesson, meta?: TopicMeta): string[] {
     } else if (step.kind === 'mutate') {
       const initial = stateViews.get(step.node);
       if (!nodeIds.has(step.node)) at(where, `node "${step.node}" is not a node`);
-      if (!initial) at(where, `node "${step.node}" has no state panel (table or list) to change`);
-      else if (initial.type !== step.after?.type) at(where, `after must be a ${initial.type}, like the node's state panel`);
+      if (!initial) at(where, `node "${step.node}" has no state view (table or list) to change`);
+      else if (initial.type !== step.after?.type) at(where, `after must be a ${initial.type}, like the node's state view`);
       if (step.after) checkView(step.after, (m) => at(where, m));
       if (initial && step.after && initial.type === 'table' && step.after.type === 'table') {
-        if (initial.columns.join('|') !== step.after.columns.join('|')) at(where, "after must keep the panel's columns");
+        if (initial.columns.join('|') !== step.after.columns.join('|')) at(where, "after must keep the state view's columns");
       }
     } else {
       at(where, 'kind must be "move" or "mutate"');
     }
+  });
+
+  if (!lesson.overview?.length) at('overview', 'needs at least one section');
+  lesson.overview?.forEach((section, i) => {
+    const where = `overview ${i + 1}`;
+    if (!nonEmpty(section.title) || !nonEmpty(section.body)) at(where, 'needs a title and a body');
+    checkSources(section.sources, (m) => at(where, m));
   });
 
   if (!lesson.selfCheck?.length) at('selfCheck', 'needs at least one question');
@@ -87,6 +112,24 @@ export function validateLesson(lesson: Lesson, meta?: TopicMeta): string[] {
   }
 
   return errors;
+}
+
+function checkRecord(record: DecodedRecord, fail: (message: string) => void): void {
+  if (!nonEmpty(record.title)) fail('record title is empty');
+  if (!nonEmpty(record.protocol)) fail('record protocol is empty');
+  if (!nonEmpty(record.raw)) fail('record raw is empty');
+  if (!record.segments?.length) fail('record needs at least one segment');
+  if (!record.fields?.length) fail('record needs at least one field');
+  const segmentIds = new Set((record.segments ?? []).map((s) => s.id));
+  for (const field of record.fields ?? []) {
+    if (!nonEmpty(field.name) || !nonEmpty(field.value) || !nonEmpty(field.note)) {
+      fail(`record field "${field.name}" needs a name, a value, and a note`);
+    }
+    if (!segmentIds.has(field.segment)) fail(`record field "${field.name}" has unknown segment "${field.segment}"`);
+  }
+  if (nonEmpty(record.raw)) {
+    for (const span of layoutRecord(record).missing) fail(`record span "${span}" is not in raw (spans must appear in field order)`);
+  }
 }
 
 function checkSources(sources: Source[] | undefined, fail: (message: string) => void): void {

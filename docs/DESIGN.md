@@ -64,6 +64,8 @@ Defined once as CSS custom properties in `src/styles/app.css`, with light and da
 | Token `response` | `--token-response` (teal) | An outbound response |
 | Token `call` | `--token-call` (violet) | A method call inside the process |
 | Token `data` | `--token-data` (amber) | A value or payload handed between components |
+| State change | `--token-state` (yellow) | A `mutate` step: node badge, state card, log dot |
+| Decoder segments | `--seg-0` … `--seg-5` | Bands of a decoded message, in segment order |
 
 Changed rows in a node-state panel get the `--hl` background; the old value fades out with a strike-through while the new one fades in.
 

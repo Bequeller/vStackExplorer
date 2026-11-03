@@ -1,6 +1,8 @@
 // Light and dark themes follow the system setting until the user picks one;
 // the choice is remembered in localStorage.
 
+import { glyph } from './glyphs';
+
 type Theme = 'light' | 'dark';
 const KEY = 'vstackexplorer:theme';
 const systemDark = (): boolean => window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -26,11 +28,12 @@ export function applyStoredTheme(): void {
 export function themeToggle(): HTMLButtonElement {
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = 'theme-toggle';
+  button.className = 'icon-btn theme-toggle';
   const render = (): void => {
-    const next = currentTheme() === 'dark' ? '라이트' : '다크';
-    button.textContent = `${next} 테마`;
-    button.setAttribute('aria-label', `${next} 테마로 전환`);
+    const dark = currentTheme() === 'dark';
+    button.replaceChildren(glyph(dark ? 'sun' : 'moon'));
+    button.setAttribute('aria-label', `${dark ? '라이트' : '다크'} 테마로 전환`);
+    button.title = button.getAttribute('aria-label') ?? '';
   };
   button.addEventListener('click', () => {
     const next: Theme = currentTheme() === 'dark' ? 'light' : 'dark';

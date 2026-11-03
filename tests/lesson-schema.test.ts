@@ -34,11 +34,26 @@ describe('lesson schema', () => {
     expect(validateLesson(lesson).some((e) => e.includes('step 1'))).toBe(true);
   });
 
+  it('rejects a record field whose span is not in the raw message', () => {
+    const lesson = structuredClone(lessons[0]!.lesson);
+    const step = lesson.steps.find((st) => st.record?.fields.some((f) => f.span));
+    const field = step?.record?.fields.find((f) => f.span);
+    if (!step || !field) throw new Error('fixture lesson needs a record with spans');
+    field.span = 'not in the message';
+    expect(validateLesson(lesson).some((e) => e.includes('is not in raw'))).toBe(true);
+  });
+
+  it('rejects a step with more than four facts', () => {
+    const lesson = structuredClone(lessons[0]!.lesson);
+    lesson.steps[0]!.facts = Array.from({ length: 5 }, (_, i) => ({ key: `k${i}`, value: 'v' }));
+    expect(validateLesson(lesson).some((e) => e.includes('facts'))).toBe(true);
+  });
+
   it('rejects a mutate step on a node without a state panel', () => {
     const lesson = structuredClone(lessons[0]!.lesson);
     const mutate = lesson.steps.find((s) => s.kind === 'mutate');
     if (!mutate || mutate.kind !== 'mutate') throw new Error('fixture lesson needs a mutate step');
     lesson.states = lesson.states.filter((s) => s.node !== mutate.node);
-    expect(validateLesson(lesson).some((e) => e.includes('has no state panel'))).toBe(true);
+    expect(validateLesson(lesson).some((e) => e.includes('has no state view'))).toBe(true);
   });
 });
