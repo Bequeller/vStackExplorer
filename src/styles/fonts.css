@@ -1,0 +1,16 @@
+/* Iosevka, self-hosted (SIL OFL 1.1). See public/fonts/iosevka/README.md for provenance. */
+@font-face {
+  font-family: 'Iosevka';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/iosevka/Iosevka-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Iosevka';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/iosevka/Iosevka-Bold.woff2') format('woff2');
+}

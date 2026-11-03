@@ -13,7 +13,7 @@ Interactive, animated study material for backend internals (Spring Boot, MySQL I
 | Build | `npm run build` |
 | Docs check | `scripts/check-docs.sh .` |
 
-The first implementation session creates these scripts; keep the names.
+Keep these script names; CI and other sessions rely on them.
 
 ## Prohibitions
 
