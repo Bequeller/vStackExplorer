@@ -17,6 +17,7 @@ Keep these script names; CI and other sessions rely on them.
 
 ## Prohibitions
 
+- Never add a node, step, fact, or decoder field that fails the "must-know only" rule in `docs/PRODUCT.md`. It must be structure or critical-path flow an engineer will meet in real work. Trivia dilutes recall, and recall is the north star.
 - Never add a lesson step without `sources` (official doc URL and the version it describes) — unsourced facts make the material wrong in ways a learner cannot detect. Enforced by the lesson schema test.
 - Never import engine code from `src/lessons/` — lessons are data; engine imports couple topic sessions and cause merge conflicts.
 - Never copy code, CSS, text, or assets from the reference site (protocol-explorer-alpha.vercel.app) — it has no license. Take ideas only. Get fonts from their own OFL release.

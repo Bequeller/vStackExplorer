@@ -43,10 +43,15 @@ Protocol Explorer (protocol-explorer-alpha.vercel.app, by Dilum Sanjaya), played
 
 ## Principles for this project
 
-- Accuracy over volume. A wrong fact is worse than a missing step.
+- The north star is in `docs/PRODUCT.md`: structure and critical-path flow, one connected visual picture, imprinted in 3 or fewer viewings. Every design choice serves it. The content rule there ("must-know only") applies to every node, step, and fact.
+- Structure first, then flow. The scene's layout is the mental map. Components stay in fixed, meaningful positions (outside → inside, caller → callee, memory above disk). The critical path reads in one direction across the scene.
+- One layout per topic. Lessons in the same topic reuse the same node positions, so each lesson adds to one map instead of starting a new one.
+- The critical path is visually dominant. Side paths and failure branches are drawn weaker and appear only when they matter.
+- End every lesson with a replay: the whole critical path plays once, continuously, without stops. That is the picture to recall.
+- Accuracy over volume. A wrong fact is worse than a missing step. A trivial fact is worse than no fact.
 - One mechanism per lesson. If a lesson needs two scenes, split it.
 - `move` for things that travel (requests, events, packets). `mutate` for state inside a component (tree pages, locks, read views, IP pools). Show the state change visibly, not only in prose.
-- The decoded-record panel is the heart of the lesson: show the real structure (InnoDB record header fields, HTTP headers, Pod spec fields) with real field names.
+- The decoder supports the flow. It shows the real structure of the message or record at a hop (HTTP headers, InnoDB record header, Pod spec) with real field names. It shows only the fields an engineer reads in practice. Explain the rest in one line or leave it out.
 - Color carries meaning and stays the same across lessons: one color per actor or data kind, with text labels, never color alone.
 
 ## Color meaning

@@ -11,7 +11,19 @@ Study material for one learner: the owner, preparing for a senior backend engine
 
 ## North star
 
-Lessons whose closing self-check the owner passes without the page open (explaining the flow aloud or answering its questions). Measured by the owner, reviewed weekly. Each roadmap item below aims to raise this count.
+For any concept, the owner understands its **structure** (the components and how they connect) and the **flow** of its critical path (the main path a request, write, or event takes) as one connected, visual picture. A few viewings are enough to imprint it.
+
+- Metric: the number of viewings until the owner can redraw the structure and the critical-path flow from memory, without the page, and explain each hop. Target: 3 or fewer per lesson.
+- Count: lessons that meet the target. The owner measures, and reviews weekly.
+- Each roadmap item names how it lowers viewings-to-recall or raises the count.
+
+## Content rule: must-know only
+
+A lesson teaches only structure and flow that a backend engineer **will** meet in real work: in design, operations, debugging, or incidents. That is the bar for every node, step, fact, and decoder field.
+
+- Keep: the components on the critical path, the hops between them, the state that changes there, and the failure points engineers actually hit (for example lock waits, rebalance storms, IP exhaustion, replica lag).
+- Cut: trivia that rarely matters in practice, such as internal constants that do not change behavior, version-by-version history, niche or brand-new features, and exotic config. A fact that is true but not needed is noise. It costs recall of the facts that matter.
+- When unsure, ask: "Will the owner be blamed in an incident or a design review for not knowing this?" If not, cut it, or move it to the lesson overview in one line.
 
 ## Scope
 
