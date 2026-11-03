@@ -1,2156 +1,2329 @@
 ---
-last-verified: 2026-11-03
+last-verified: 2026-11-04
 sources: [https://github.com/redis/redis/tree/8.10.3, https://github.com/redis/docs/tree/ff4f956f400e348ffd3a00b12ea163016e56f139]
 ---
 
 # Redis lessons: content plan
 
-Research only. This file is the content plan for the Redis topic. It will be turned into lesson data after the owner reviews the engine and schema redesign. It names no TypeScript types, because the schema is changing. Each step lists `move` or `mutate`, a title, a subtitle, Korean prose, facts, an event-log row, the state (for `mutate`), and sources.
+Research only. This is the content plan for the Redis topic. It becomes lesson data after the engine prep lands.
+
+It follows:
+- `docs/PRODUCT.md` (north star; "Content rule: must-know only")
+- `docs/DESIGN.md` (Principles)
+- decision 0010 (one mechanism per lesson, about 8 to 12 steps)
+- decision 0011 (structure and critical-path flow first, no trivia)
+
+**Changes after the two reviews on 2026-11-04:**
+- 12 lessons, matching the Scope list. `expire`, `evict`, and `cache-lock` are separate. `atomicity`, `bigkey-lazyfree`, and `sentinel` are new.
+- All lessons share one fixed node layout. Each lesson has a one-line critical path and ends with a replay of it.
+- Facts were cut by the must-know test. Byte layouts that engineers never read are gone: listpack, intset, RDB opcodes, and the cluster bus header. Decoders now show what engineers do read: RESP frames, `INFO` sections, `SLOWLOG` entries, AOF text, redirect errors, and Sentinel events.
+- 8.x-only features are cut or reduced to one overview line. See "Cut by must-know rule".
+- A `move` never changes state. A `mutate` targets a node that has a state panel, and it gives that panel's whole view. Each decoder record names its step and says whether it is wire bytes.
 
 ## Pinned version and license
 
-- **Pinned version: Redis Open Source 8.10.3**, released 2026-10-26 ([00-RELEASENOTES#L24-L29](https://github.com/redis/redis/blob/8.10.3/00-RELEASENOTES#L24-L29), [version.h#L1](https://github.com/redis/redis/blob/8.10.3/src/version.h#L1)). It is the newest GA tag in `redis/redis`. 8.12 exists only as release candidates (`8.12-rc1`, `8.12-rc2` tags; [8.12 release notes#L15-L19](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/stack-with-enterprise/release-notes/redisce/redisos-8.12-release-notes.md#L15-L19)).
-- **License:** Redis 8.0 and later are tri-licensed: RSALv2, SSPLv1, or AGPLv3, at the user's choice. Redis 7.2 and earlier stay under BSD-3-Clause ([LICENSE.txt#L1-L8](https://github.com/redis/redis/blob/8.10.3/LICENSE.txt#L1-L8), [8.0 release notes#L129-L132](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/stack-with-enterprise/release-notes/redisce/redisos-8.0-release-notes.md#L129-L132)). For this site that only matters for quoting. We link to the source and paraphrase it, and copy no code.
-- **redis.io could not be opened from this session** (the network policy refuses `redis.io`). Every docs fact was checked in the redis.io docs source repository, `redis/docs`, pinned to commit `ff4f956f400e348ffd3a00b12ea163016e56f139` (HEAD on 2026-11-03). That repository renders redis.io, so the text is the same. It is not tagged per Redis version (see Open questions).
+- **Pinned version: Redis Open Source 8.10.3**, released 2026-10-26.
+  - Sources: [00-RELEASENOTES#L24](https://github.com/redis/redis/blob/8.10.3/00-RELEASENOTES#L24), [version.h#L1](https://github.com/redis/redis/blob/8.10.3/src/version.h#L1).
+  - It is the newest GA tag. 8.12 has only release candidates ([8.12 release notes#L15-L19](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/stack-with-enterprise/release-notes/redisce/redisos-8.12-release-notes.md#L15-L19)).
+- **License:**
+  - Redis 8.0 and later: RSALv2, SSPLv1, or AGPLv3, at the user's choice.
+  - Redis 7.2 and earlier: BSD-3-Clause.
+  - Sources: [LICENSE.txt#L1-L8](https://github.com/redis/redis/blob/8.10.3/LICENSE.txt#L1-L8), [8.0 release notes#L129-L132](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/stack-with-enterprise/release-notes/redisce/redisos-8.0-release-notes.md#L129-L132).
+  - We link and paraphrase. We copy no code.
+- **Docs source:**
+  - redis.io is reachable from local sessions. This cloud session's proxy refused it again on 2026-11-04 (HTTP 403 on CONNECT).
+  - So every docs fact was checked in `redis/docs`, the repository that renders redis.io. It is pinned to commit `ff4f956f400e348ffd3a00b12ea163016e56f139`, which was HEAD on 2026-11-03.
+- **This differs from decision 0004:**
+  - Decision 0004 asks for release-tag URLs. `redis/docs` has no per-release tags, so docs links are pinned to a commit instead.
+  - Source-code links use the release tag `8.10.3`, as 0004 asks.
+  - The engine session will record a decision on commit pins.
 
 ### Source conventions
 
-- Links under `https://github.com/redis/redis/blob/8.10.3/` are Redis source at the release tag. Use version label `Redis 8.10.3`.
-- Links under `https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/` are the redis.io docs source. Use version label `Redis Open Source 8.10 docs (redis/docs ff4f956)`.
-- Every line anchor was checked against the pinned trees on 2026-11-03: each file exists and each range is in bounds.
-- `E.G.` marks a value that changes per run (a client id, a timestamp, a pid, an address).
-- "unverified" marks anything not confirmed in the pinned source or docs. It must not go into a lesson as a fact.
+- **Source code:** links under `https://github.com/redis/redis/blob/8.10.3/`. Version label `Redis 8.10.3`.
+- **Docs:** links under `https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/`. Version label `Redis Open Source 8.10 docs (redis/docs ff4f956)`.
+- **Line anchors:** every anchor was checked against the pinned trees. Each file exists and each range is in bounds.
+- **`E.G.`:** marks a value that changes per run (client id, timestamp, pid, address).
+
+### Step format
+
+- **`move`:** a token travels between two nodes. It changes no state.
+- **`mutate`:** a change inside one node that has a state panel. "State" gives the panel's whole view before and after.
+- **Record:** names the decoder record the step opens. It is marked `wire` (bytes on a network connection) or `not wire` (file content or a memory view).
+- **Limits:** prose has at most 5 lines and 320 characters. Each step has 2 to 3 facts.
+- **"(side path)":** marks a step that is not on the critical path. Draw it weaker.
+- **Replay:** lists the hops that play once, without stops, at the end of the lesson.
+
+## Topic layout
+
+One layout for all Redis lessons, in scene units (1000 × 640). Each lesson shows only the slots it uses, and a slot's label changes with its role.
+
+The critical path reads left to right: client → I/O → main thread → memory. Disk sits below memory. Other Redis servers sit in the right column.
+
+| Slot id | Position (x, y) | Kind | Role by lesson |
+|---|---|---|---|
+| `client` | 90, 320 | `client` (`app` in cache-lock) | `redis-cli`; the app; cluster-aware client; Sentinel-aware client |
+| `db` | 90, 540 | `storage` | MySQL behind the cache (cache-lock only) |
+| `io` | 250, 320 | `framework` | I/O thread (command-path only) |
+| `main` | 430, 320 | `framework` | Main thread; master (replication, sentinel); cluster node A |
+| `mem` | 620, 200 | `storage` | Keyspace and objects in memory |
+| `bg` | 430, 530 | `container` or `framework` | `fork()` child (rdb, aof); bio thread (aof, bigkey-lazyfree) |
+| `disk` | 620, 530 | `storage` | `dump.rdb`, `appendonlydir/` |
+| `peer1` | 860, 160 | `framework` | Replica 1; cluster node B |
+| `peer2` | 860, 320 | `framework` | Replica 2; cluster node C |
+| `peer3` | 860, 480 | `framework` | Cluster replica A1 |
+| `sen1` `sen2` `sen3` | (300, 70) (430, 70) (560, 70) | `framework` | Sentinels (sentinel only) |
+
+**Illustration ideas** (our own isometric line art):
+
+| Slot | Drawing |
+|---|---|
+| `client` | laptop |
+| `db` | cylinder |
+| `io` | small gear on a conveyor |
+| `main` | large gear with a loop arrow |
+| `mem` | drawer cabinet |
+| `bg` | dashed gear (a child process) or a worker gear with a stopwatch (bio) |
+| `disk` | platter with file tabs |
+| `peer*` | server towers |
+| `sen*` | watchtowers |
 
 ## Lesson set
 
-Order by interview value. One mechanism per lesson. Cache patterns are not a lesson of their own. Each pattern closes the lesson whose mechanism explains it: stampede after expiration, lock caveats after replication.
-
-| # | id | Title (Korean) | Mechanism | Steps |
+| # | id | Title (Korean) | Critical path in one line | Steps |
 |---|---|---|---|---|
-| 1 | `command-path` | 명령 한 건이 Redis를 지나가는 길 | Event loop, I/O threads, RESP, `processCommand` → `call()` → reply | 16 |
-| 2 | `encodings` | 작은 자료구조는 listpack, 커지면 변신한다 | Object encodings, conversion thresholds, skiplist + dict, incremental rehash | 15 |
-| 3 | `expire-evict` | 키는 언제 사라지는가: 만료와 eviction | Lazy + active expiration, maxmemory eviction (approximated LRU/LFU), cache stampede | 16 |
-| 4 | `rdb` | fork 한 번으로 스냅샷: RDB와 copy-on-write | `BGSAVE`, `fork()`, COW, RDB file format | 12 |
-| 5 | `aof` | 모든 쓰기를 기록한다: AOF와 multi-part rewrite | `appendfsync`, background fsync, MP-AOF manifest, rewrite | 14 |
-| 6 | `replication` | replid와 offset으로 따라잡기: 복제와 PSYNC | Handshake, full sync over the rdb channel, backlog, partial resync, failover ID shift, lock caveats | 15 |
-| 7 | `cluster` | 16384개 slot과 MOVED/ASK, 그리고 failover | Key → slot, redirects, resharding, cluster bus, failure detection, replica election | 15 |
-
-### Topic-wide node kinds
-
-The current kinds map onto Redis like this. The scene illustrations are our own isometric line art.
-
-| Kind | Redis use |
-|---|---|
-| `client` | `redis-cli`, a client library, a cluster-aware client |
-| `app` | The developer's service (for example a Spring app using Redis as a cache) |
-| `container` | Kernel and OS pieces: socket, `epoll`, page cache, `fork()` child as a process |
-| `framework` | Redis internals: main thread, I/O thread, bio thread, replication buffer, cluster bus |
-| `storage` | Keyspace (`kvstore`), objects in memory, RDB/AOF files on disk, the database behind a cache |
+| 1 | `command-path` | 명령 한 건이 Redis를 지나가는 길 | client → I/O thread (read, parse) → main thread (check, execute) → memory → reply buffer → client | 9 |
+| 2 | `encodings` | 작은 자료구조는 listpack, 커지면 변신한다 | write → size check → compact encoding, or a one-way conversion to hashtable / skiplist / quicklist | 8 |
+| 3 | `expire` | TTL이 지난 키는 언제 사라지나 | `SET EX` → absolute deadline → deleted on access or by the cron sampler → `DEL` to replicas and AOF | 7 |
+| 4 | `evict` | 메모리가 꽉 차면 무엇을 버리나 | write → over `maxmemory` → policy picks a sampled victim → delete → `DEL` to replicas | 8 |
+| 5 | `cache-lock` | cache stampede와 Redis lock | miss → DB → fill with TTL; on a hot-key expiry, one `SET NX PX` winner reloads while the others wait | 10 |
+| 6 | `atomicity` | 다른 명령이 끼어들지 못하게 | `WATCH` → `MULTI` → queue → `EXEC` runs all at once, or aborts if a watched key changed | 10 |
+| 7 | `bigkey-lazyfree` | 큰 키 하나가 서버를 멈춘다 | O(N) command on a big key → the one main thread is busy → every client waits; `UNLINK` frees in the background | 10 |
+| 8 | `rdb` | fork 한 번으로 스냅샷 | save point → `fork()` → child writes a temp file while the parent serves (copy-on-write) → atomic rename | 9 |
+| 9 | `aof` | 모든 쓰기를 기록한다 | write → AOF buffer → `write()` before the reply → `fsync` per policy → rewrite into a new BASE + INCR | 10 |
+| 10 | `replication` | replid와 offset으로 따라잡기 | `PSYNC` → full sync (RDB + buffered writes) → async stream → reconnect from the backlog | 10 |
+| 11 | `sentinel` | 누가 master의 죽음을 판정하나 | PING timeout → SDOWN → quorum → ODOWN → majority elects a leader → promote a replica → clients switch | 11 |
+| 12 | `cluster` | 16384개 slot과 MOVED/ASK | key → slot → owner node, or a MOVED/ASK redirect; dead master → PFAIL → FAIL → replica elected | 12 |
 
 ---
 
 ## Lesson 1. `command-path`: 명령 한 건이 Redis를 지나가는 길
 
-**Goal.** Follow one `SET user:1 alice` from the TCP accept to the `+OK` on the wire: which thread reads it, which thread runs it, and what runs between the two.
+**Goal.** See which thread reads a command, which thread runs it, and where the reply waits, for one `SET user:1 alice`.
 
-**Interview questions it answers**
-- Redis는 왜 single-threaded인데 빠른가? I/O threads는 정확히 무엇을 병렬화하는가?
-- 명령 하나가 원자적으로 실행되는 이유는? `KEYS *` 하나가 왜 전체 지연을 만드는가?
-- RESP2와 RESP3의 차이는? pipelining이 줄이는 비용은?
-- `processCommand`에서 명령이 거부되는 경우는(arity, ACL, cluster redirect, OOM)?
+**Critical path.** client → I/O thread (read, parse) → main thread (check, execute) → memory → reply buffer → client.
 
-**Scenario.** `io-threads 4` (the default is `1`; the lesson shows 4 so the I/O-thread hand-off is visible, and step 12 says what happens with the default).
+**Interview and incident questions**
+- Redis는 왜 single-threaded인가? I/O threads는 무엇을 나눠 하나?
+- 명령 하나가 원자적인 이유는?
+- `-OOM`, `-MOVED` 같은 거절은 어디서 나오나?
 
-**Nodes**
+**Overview (one line each, not steps).** RESP3(`HELLO 3`)는 map/null 같은 타입을 더한다(연결은 RESP2로 시작). I/O thread 구현은 8.0에서 바뀌었다(8.0 release notes); 원리(실행은 main thread 하나)는 같다.
 
-| id | label | sublabel | kind | Illustration idea | First appears |
-|---|---|---|---|---|---|
-| `client` | redis-cli | RESP2 → RESP3 | `client` | Laptop with a terminal prompt | S2 |
-| `socket` | TCP :6379 | `epoll` | `container` | Socket plug with a fan of fd lines | S1 |
-| `main` | Main thread | `aeMain` / `call()` | `framework` | Single gear with a circular arrow (the loop) | S1 |
-| `io1` | I/O thread #1 | own `aeEventLoop` | `framework` | Smaller gear beside a conveyor belt | S3 |
-| `keyspace` | db0 keyspace | `kvstore` → `dict` | `storage` | Isometric drawer cabinet with labeled drawers | S9 |
+**Nodes** (topic layout): `client` (redis-cli), `io` (I/O thread), `main` (main thread), `mem` (db0).
 
-**Layer selector:** `Network` (TCP, RESP bytes) · `Event loop` (ae, threads) · `Command` (`processCommand`, `call`) · `Data` (keyspace).
+**State panels**
+
+| Node | Panel | Initial rows |
+|---|---|---|
+| `io` | client 7 입력 | `querybuf` = ""; `argv` = [] |
+| `main` | client 7 | `검사` = —; `전파 대기` = []; `응답 buffer` = — |
+| `mem` | db0 | (empty) |
+
+**Layer selector:** `Network` · `Thread` · `Command` · `Data`.
 
 ### Steps
 
-#### S1 · `mutate` main · 이벤트 루프가 기다린다
-- **Subtitle:** `aeMain`은 beforeSleep → `epoll_wait` → afterSleep → 이벤트 처리 순서로 계속 돈다.
+#### S1 · `move` client → main · 연결
+- **Subtitle:** main thread 하나가 event loop를 돌며 새 연결을 받는다.
 - **Prose:**
-  > Redis의 main thread는 `aeMain()` 안에서 `aeProcessEvents()`를 끝없이 반복합니다.
-  > 한 바퀴는 `beforeSleep` → `aeApiPoll`(Linux에서는 `epoll`) → `afterSleep` → file events → time events 순서입니다.
-  > `serverCron` 같은 timer는 time event로 돌고, 기본 `hz 10`이면 100 ms마다 한 번 실행됩니다.
-  > 멀티플렉서는 빌드할 때 evport > epoll > kqueue > select 순으로 고릅니다.
-- **Facts:**
-  - `hz` default: `10` (range 1–500)
-  - `dynamic-hz` default: `yes` (raises hz while clients/hz > 200)
-  - Linux multiplexer: `epoll` (`HAVE_EPOLL`)
-- **Event log:** `main → main · Event loop · aeProcessEvents: beforeSleep → epoll_wait → afterSleep · next timer 100 ms (hz 10)`
-- **State (main: loop phase):**
-  - before: `phase = —`
-  - after: `phase = epoll_wait (sleeping)`, `timer serverCron = every 100 ms`
-- **Sources:** [ae.c#L382-L412](https://github.com/redis/redis/blob/8.10.3/src/ae.c#L382-L412), [ae.c#L497-L504](https://github.com/redis/redis/blob/8.10.3/src/ae.c#L497-L504), [ae.c#L30-L44](https://github.com/redis/redis/blob/8.10.3/src/ae.c#L30-L44), [config.h#L84-L86](https://github.com/redis/redis/blob/8.10.3/src/config.h#L84-L86), [server.h#L119-L122](https://github.com/redis/redis/blob/8.10.3/src/server.h#L119-L122), [server.c#L1575-L1585](https://github.com/redis/redis/blob/8.10.3/src/server.c#L1575-L1585), [redis.conf#L2521-L2529](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2521-L2529)
-
-#### S2 · `move` client → socket · TCP 연결 수락
-- **Subtitle:** listening socket이 readable이 되면 `connSocketAcceptHandler`가 연결을 받는다.
-- **Prose:**
-  > listening socket은 `AE_READABLE` 이벤트로 main loop에 등록되어 있습니다.
-  > 연결이 오면 `connSocketAcceptHandler`가 한 번에 최대 `max-new-connections-per-cycle`(기본 10)개까지 accept합니다.
-  > `maxclients`(기본 10000)를 넘으면 `-ERR max number of clients reached`로 거절합니다.
-  > 예전 글에 나오는 `acceptTcpHandler`라는 이름은 8.10.3 소스에 없습니다.
+  > Redis는 main thread 하나가 event loop(`aeMain`)를 돌며 연결, 읽기, 쓰기 이벤트를 처리합니다. Linux에서는 `epoll`을 씁니다.
+  > 연결 수가 `maxclients`를 넘으면 새 연결을 거절합니다.
 - **Token:** `request` · `TCP connect :6379`
 - **Facts:**
-  - `tcp-backlog` default: `511` (the kernel truncates it to `somaxconn`)
-  - `max-new-connections-per-cycle` default: `10`
-  - `maxclients` default: `10000`
-- **Event log:** `client → socket · Network · TCP accept, fd=12 (E.G.) · —`
-- **Sources:** [server.c#L2835-L2839](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2835-L2839), [socket.c#L301-L320](https://github.com/redis/redis/blob/8.10.3/src/socket.c#L301-L320), [config.c#L3556](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3556), [networking.c#L1686-L1704](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L1686-L1704), [config.c#L3553](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3553), [redis.conf#L141-L148](https://github.com/redis/redis/blob/8.10.3/redis.conf#L141-L148)
+  - `maxclients`: 10000 (over the limit: `-ERR max number of clients reached`)
+  - Linux multiplexer: `epoll`
+- **Event log:** `client → main · Network · accept fd=12 (E.G.) · —`
+- **Sources:** [ae.c#L30-L44](https://github.com/redis/redis/blob/8.10.3/src/ae.c#L30-L44), [config.h#L84-L86](https://github.com/redis/redis/blob/8.10.3/src/config.h#L84-L86), [config.c#L3553](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3553), [networking.c#L1686-L1704](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L1686-L1704)
 
-#### S3 · `mutate` main · client를 만들고 I/O thread에 붙인다
-- **Subtitle:** `createClient()` 후 가장 한가한 I/O thread에 client를 배정한다.
+#### S2 · `move` client → io · RESP 요청 36바이트
+- **Subtitle:** 명령은 bulk string의 array: `*3 $3 SET $6 user:1 $5 alice`.
 - **Prose:**
-  > `createClient()`는 `TCP_NODELAY`를 켜고, read handler로 `readQueryFromClient`를 달고, 16 KB reply buffer를 잡습니다.
-  > 새 연결은 항상 RESP2(`c->resp = 2`)로 시작합니다.
-  > `io-threads`가 1보다 크면 client를 client 수가 가장 적은 I/O thread에 붙입니다. 이후 이 client의 read와 write는 그 thread의 event loop가 맡습니다.
-- **Facts:**
-  - `io-threads` default: `1`, max `128`, immutable; thread 0 is the main thread, so `io-threads 4` starts 3 I/O threads
-  - Assignment rule: the I/O thread with the fewest clients
-  - New client protocol: RESP2; static reply buffer `PROTO_REPLY_CHUNK_BYTES` = 16 KB
-- **Event log:** `main → io1 · Event loop · assignClientToIOThread, client id=7 (E.G.) → thread 1 · —`
-- **State (main: I/O thread client counts):**
-  - before: `t1 = 0`, `t2 = 0`, `t3 = 0`
-  - after: `t1 = 1` (client 7), `t2 = 0`, `t3 = 0`
-- **Sources:** [networking.c#L122-L148](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L122-L148), [networking.c#L1662-L1663](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L1662-L1663), [config.c#L3507](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3507), [iothread.c#L332-L334](https://github.com/redis/redis/blob/8.10.3/src/iothread.c#L332-L334), [iothread.c#L1003-L1004](https://github.com/redis/redis/blob/8.10.3/src/iothread.c#L1003-L1004), [server.h#L191](https://github.com/redis/redis/blob/8.10.3/src/server.h#L191)
-
-#### S4 · `move` client → io1 · RESP 요청 36바이트
-- **Subtitle:** 명령은 bulk string의 array로 보낸다: `*3 $3 SET $6 user:1 $5 alice`.
-- **Prose:**
-  > client는 명령을 bulk string의 array로 보냅니다. 첫 바이트 `*`가 array, `$`가 bulk string 길이입니다.
-  > `SET user:1 alice`는 CRLF 포함 36바이트입니다.
-  > 첫 바이트가 `*`가 아니면 Redis는 공백으로 나뉜 inline command로 해석합니다. telnet으로도 명령을 보낼 수 있는 이유입니다.
+  > client는 명령을 bulk string array로 보냅니다. `*`는 원소 수, `$`는 다음 문자열의 바이트 수입니다.
+  > 길이를 앞에 적으므로 서버는 값을 훑지 않고 정확히 그만큼 읽습니다.
 - **Token:** `request` · `SET user:1 alice`
 - **Facts:**
-  - Request shape: array of bulk strings
-  - First byte `*` → `PROTO_REQ_MULTIBULK`; anything else → `PROTO_REQ_INLINE`
-  - Size: 36 bytes (decoder D1.1)
-- **Event log:** `client → io1 · RESP2 · *3 SET user:1 alice · 36 B`
-- **Record:** D1.1
-- **Sources:** [protocol-spec.md#L94](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L94), [protocol-spec.md#L124-L139](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L124-L139), [protocol-spec.md#L742-L750](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L742-L750), [protocol-spec.md#L776](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L776), [networking.c#L3739-L3745](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L3739-L3745)
+  - Request: array of bulk strings, 36 bytes here
+  - A connection starts in RESP2; `HELLO 3` switches it to RESP3
+- **Event log:** `client → io · RESP2 · *3 SET user:1 alice · 36 B`
+- **Record:** D1.1 (`wire`)
+- **Sources:** [protocol-spec.md#L94](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L94), [protocol-spec.md#L221-L225](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L221-L225), [protocol-spec.md#L695](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L695)
 
-#### S5 · `mutate` io1 · query buffer에 읽어 들인다
-- **Subtitle:** `readQueryFromClient`가 최대 16 KB씩 읽어 `querybuf`에 붙인다.
+#### S3 · `mutate` io · 읽고 파싱만 한다
+- **Subtitle:** I/O thread가 socket을 읽어 `argv`를 만든다. 실행은 하지 않는다.
 - **Prose:**
-  > I/O thread #1이 `readQueryFromClient()`로 socket을 읽습니다. 한 번에 `PROTO_IOBUF_LEN`(16 KB)을 읽습니다.
-  > 32 KB 이상인 큰 인자는 복사를 피하려고 별도 buffer로 받습니다.
-  > query buffer가 `client-query-buffer-limit`(기본 1 GB, 인증 전 client는 1 MB)를 넘으면 client를 끊습니다.
+  > `io-threads`를 켜면 I/O thread가 socket 읽기, RESP 파싱, 응답 쓰기를 나눠 맡습니다. 기본값 1이면 이것도 main thread가 합니다.
+  > 파싱이 끝난 client는 "실행 대기"로 표시되어 main thread로 넘어갑니다.
 - **Facts:**
-  - `PROTO_IOBUF_LEN`: 16 KB
-  - `PROTO_MBULK_BIG_ARG`: 32 KB
-  - `client-query-buffer-limit`: 1 GB (1 MB before AUTH)
-- **Event log:** `io1 → io1 · Network · read() 36 B into querybuf · 36 B`
-- **State (io1: client 7 query buffer):**
-  - before: `querybuf = ""`, `qb_pos = 0`
-  - after: `querybuf = "*3\r\n$3\r\nSET…alice\r\n"` (36 B), `qb_pos = 0`
-- **Sources:** [networking.c#L3918-L3927](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L3918-L3927), [server.h#L190-L193](https://github.com/redis/redis/blob/8.10.3/src/server.h#L190-L193), [config.c#L3610](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3610), [networking.c#L4029-L4038](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L4029-L4038)
+  - `io-threads`: default 1 (main thread only)
+  - I/O threads read, parse, and write; they never execute commands
+- **Event log:** `io → io · Network · read 36 B, argv[3] · 36 B`
+- **State (io: client 7 입력):**
+  - before: `querybuf` = ""; `argv` = []
+  - after: `querybuf` = 36 B; `argv` = [SET, user:1, alice]
+- **Sources:** [config.c#L3507](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3507), [redis.conf#L1414-L1416](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1414-L1416), [networking.c#L3843-L3847](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L3843-L3847)
 
-#### S6 · `mutate` io1 · 파싱은 I/O thread, 실행은 아니다
-- **Subtitle:** `processMultibulkBuffer`가 `argv`를 만들고, client에 "실행 대기" 표시만 한다.
+#### S4 · `move` io → main · 실행은 한 thread에서
+- **Subtitle:** 모든 명령은 main thread 하나가 순서대로 실행한다.
 - **Prose:**
-  > I/O thread는 `processMultibulkBuffer()`로 `argv = [SET, user:1, alice]`를 만듭니다. protocol parsing까지 I/O thread가 합니다.
-  > 하지만 명령 실행은 하지 않습니다. `CLIENT_IO_PENDING_COMMAND` flag를 붙이고 main thread 대기열에 넣을 뿐입니다.
-  > 8.x의 `lookahead`(기본 16)는 pipeline에 쌓인 명령을 최대 16개까지 미리 parse하고 key를 prefetch합니다.
+  > 실행은 main thread 하나가 한 번에 하나씩 합니다. 그래서 명령 하나는 다른 명령과 섞이지 않습니다.
+  > 같은 이유로 느린 명령 하나가 도는 동안 다른 모든 client가 기다립니다(lesson 7).
+- **Token:** `call` · `client 7: SET`
 - **Facts:**
-  - Parsing runs on the I/O thread; commands never execute there
-  - `lookahead` default: `16` (1 for unauthenticated clients)
-  - `io-threads-do-reads`: deprecated, accepted and ignored
-- **Event log:** `io1 → io1 · Command · parsed argv[3], flag CLIENT_IO_PENDING_COMMAND · —`
-- **State (io1: client 7):**
-  - before: `argc = 0`, `argv = []`, `io_flags = —`
-  - after: `argc = 3`, `argv = [SET, user:1, alice]`, `io_flags = PENDING_COMMAND`
-- **Sources:** [networking.c#L3278](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L3278), [networking.c#L3843-L3847](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L3843-L3847), [server.h#L212](https://github.com/redis/redis/blob/8.10.3/src/server.h#L212), [redis.conf#L2486-L2487](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2486-L2487), [redis.conf#L1414-L1416](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1414-L1416), [config.c#L502](https://github.com/redis/redis/blob/8.10.3/src/config.c#L502)
+  - Docs: "Redis can serve a single request in every given moment"
+  - One slow command delays every other client
+- **Event log:** `io → main · Thread · hand client 7 to main thread · —`
+- **Sources:** [iothread.c#L663-L673](https://github.com/redis/redis/blob/8.10.3/src/iothread.c#L663-L673), [latency.md#L174-L177](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/optimization/latency.md#L174-L177), [latency.md#L191-L197](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/optimization/latency.md#L191-L197)
 
-#### S7 · `move` io1 → main · main thread로 넘긴다
-- **Subtitle:** event notifier로 main thread를 깨우고, client를 묶음으로 넘긴다.
+#### S5 · `mutate` main · 실행 전 관문
+- **Subtitle:** arity와 ACL, cluster slot, 메모리 검사를 통과해야 실행한다.
 - **Prose:**
-  > I/O thread와 main thread는 event notifier로 서로를 깨웁니다.
-  > client는 최대 16개씩 묶어서 넘깁니다. main thread는 넘겨받은 client마다 `processPendingCommandAndInputBuffer()`를 부릅니다.
-  > 모든 명령이 한 thread에서 순서대로 실행되므로 명령 하나는 다른 명령과 섞이지 않습니다.
-- **Token:** `call` · `client 7: SET pending`
+  > `processCommand()`는 명령과 인자 수, ACL을 확인합니다.
+  > cluster 모드면 key의 slot이 이 node 것인지 보고, 아니면 `-MOVED`로 돌려보냅니다(lesson 12).
+  > `maxmemory`를 넘었으면 eviction을 시도하고, 실패하면 쓰기 명령을 `-OOM`으로 거절합니다(lesson 4).
 - **Facts:**
-  - Hand-off batch: `IO_THREAD_MAX_PENDING_CLIENTS` = 16
-  - Each I/O thread runs its own `aeEventLoop`
-  - Only the main thread frees clients
-- **Event log:** `io1 → main · Event loop · enqueuePendingClientsToMainThread, 1 client · —`
-- **Sources:** [iothread.c#L973-L987](https://github.com/redis/redis/blob/8.10.3/src/iothread.c#L973-L987), [server.h#L230](https://github.com/redis/redis/blob/8.10.3/src/server.h#L230), [iothread.c#L663-L673](https://github.com/redis/redis/blob/8.10.3/src/iothread.c#L663-L673), [iothread.c#L595-L596](https://github.com/redis/redis/blob/8.10.3/src/iothread.c#L595-L596)
+  - Order: lookup and arity → ACL (`-NOPERM`) → cluster redirect → OOM check → `MULTI` queueing or `call()`
+  - Only `DENYOOM` commands (writes such as `SET`) are rejected on OOM; reads still run
+- **Event log:** `main → main · Command · processCommand checks passed · —`
+- **State (main: client 7):**
+  - before: `검사` = —; `전파 대기` = []; `응답 buffer` = —
+  - after: `검사` = arity ✓ ACL ✓ slot — OOM — → `call()`; `전파 대기` = []; `응답 buffer` = —
+- **Sources:** [server.c#L4506-L4535](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4506-L4535), [server.c#L4590-L4622](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4590-L4622), [server.c#L4655-L4671](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4655-L4671), [server.c#L4831-L4844](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4831-L4844), [set.json#L32-L34](https://github.com/redis/redis/blob/8.10.3/src/commands/set.json#L32-L34)
 
-#### S8 · `mutate` main · `processCommand`의 관문들
-- **Subtitle:** 명령 조회 → arity → ACL → cluster redirect → OOM → MULTI 여부를 차례로 검사한다.
+#### S6 · `mutate` mem · 메모리에 쓴다
+- **Subtitle:** `setCommand`가 db0 hash table에 `user:1`을 넣는다.
 - **Prose:**
-  > `processCommand()`는 `lookupCommand()`로 명령을 찾고 arity를 확인합니다. `SET`의 arity는 `-3`, 즉 인자가 3개 이상입니다.
-  > 다음은 ACL(`-NOPERM`), cluster 모드의 slot 검사(`-MOVED`/`-ASK`), 메모리 검사입니다.
-  > `maxmemory`가 설정되어 있으면 여기서 `performEvictions()`를 부르고, 실패하면 `DENYOOM` 명령(`SET` 포함)만 `-OOM`으로 거절합니다.
-  > `MULTI` 안이면 실행하지 않고 `+QUEUED`로 답합니다. 아니면 `call()`로 갑니다.
+  > `call()`이 `setCommand`를 실행해 키를 메모리의 hash table에 넣습니다. 디스크는 이 경로에 없습니다.
+  > 변경 수(`dirty`)가 1 늘고, 이것이 전파와 RDB 저장 시점의 기준이 됩니다.
 - **Facts:**
-  - `SET` arity: `-3`; flags include `DENYOOM`
-  - Arity error: `wrong number of arguments for 'set' command`
-  - OOM check runs only when `maxmemory` ≠ 0 (default 0)
-- **Event log:** `main → main · Command · processCommand: lookup ✓ arity ✓ ACL ✓ OOM — · —`
-- **State (main: checks for client 7):**
-  - before: `lookup = 대기`, `arity = 대기`, `ACL = 대기`, `cluster = 대기`, `OOM = 대기`, `MULTI = 대기`
-  - after: `lookup = SET`, `arity = 3 ≥ 3`, `ACL = 통과`, `cluster = standalone, 건너뜀`, `OOM = maxmemory 0, 건너뜀`, `MULTI = 아님 → call()`
-- **Sources:** [server.c#L4506-L4535](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4506-L4535), [server.c#L4380](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4380), [server.c#L4590-L4596](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4590-L4596), [server.c#L4603-L4622](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4603-L4622), [server.c#L4655-L4671](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4655-L4671), [server.c#L4831-L4844](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4831-L4844), [set.json#L7](https://github.com/redis/redis/blob/8.10.3/src/commands/set.json#L7), [set.json#L32-L34](https://github.com/redis/redis/blob/8.10.3/src/commands/set.json#L32-L34)
+  - All data is in memory; persistence is a separate path (lessons 8, 9)
+  - `dirty` counts changes since the last save
+- **Event log:** `main → mem · Data · SET user:1 · 5 B value`
+- **State (mem: db0):**
+  - before: (empty)
+  - after: `user:1` → `"alice"`
+- **Sources:** [server.c#L4046](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4046), [server.c#L4174-L4196](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4174-L4196)
 
-#### S9 · `mutate` keyspace · `setCommand`가 키를 쓴다
-- **Subtitle:** `call()`이 `c->cmd->proc(c)`를 부르고, `user:1`이 db0에 들어간다.
+#### S7 · `mutate` main · slowlog과 전파 예약
+- **Subtitle:** 느렸으면 slowlog에 남기고, 데이터를 바꿨으면 AOF와 replica로 보낼 명령을 예약한다.
 - **Prose:**
-  > `call()`은 `c->cmd->proc(c)`, 여기서는 `setCommand`를 부릅니다.
-  > 키는 db0의 `kvstore`(standalone에서는 dict 1개)에 들어가고, 변경 수 `server.dirty`가 1 늘어납니다.
-  > Redis는 한 순간에 요청 하나만 처리하므로, 이 사이에 다른 client의 명령은 끼어들 수 없습니다.
-- **Facts:**
-  - Keyspace: `kvstore` of dicts (1 dict standalone, 16384 in cluster mode)
-  - `dirty` counts changes; it drives propagation (S10) and RDB save points (lesson 4)
-- **Event log:** `main → keyspace · Data · dbAdd user:1 · 5 B value`
-- **State (keyspace: db0):**
-  - before: `(empty)`
-  - after: `user:1 → "alice"`
-- **Sources:** [server.c#L4046](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4046), [kvstore.c#L28-L44](https://github.com/redis/redis/blob/8.10.3/src/kvstore.c#L28-L44), [server.h#L1226-L1228](https://github.com/redis/redis/blob/8.10.3/src/server.h#L1226-L1228), [latency.md#L174-L177](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/optimization/latency.md#L174-L177)
-
-#### S10 · `mutate` main · 실행 뒤 처리: slowlog, 통계, 전파
-- **Subtitle:** 걸린 시간을 기록하고, 데이터가 바뀌었으면 AOF와 replica로 전파를 예약한다.
-- **Prose:**
-  > `call()`은 실행 시간을 재서 `slowlog-log-slower-than`(기본 10000 µs)을 넘으면 slowlog에 남깁니다.
-  > `commandstats`의 호출 수와 누적 시간도 올립니다.
-  > `dirty`가 늘었으면 `PROPAGATE_AOF|PROPAGATE_REPL`로 `alsoPropagate()`합니다. 실행 단위가 끝날 때 `propagatePendingCommands()`가 내보내고, 여러 개면 `MULTI`/`EXEC`로 감쌉니다.
+  > 실행 시간이 10 ms를 넘으면 slowlog에 남습니다. 장애 때 가장 먼저 보는 곳입니다.
+  > 데이터를 바꾼 명령은 AOF와 replica로 전파할 목록에 들어갑니다.
 - **Facts:**
   - `slowlog-log-slower-than`: 10000 µs; `slowlog-max-len`: 128
-  - Propagate only when the command changed data (`dirty`)
-  - Several propagated ops in one unit are wrapped in `MULTI`/`EXEC`
-- **Event log:** `main → main · Command · call() done, cmdstat_set calls+1, propagate SET · 12 µs (E.G.)`
-- **State (main: stats and propagation queue):**
-  - before: `cmdstat_set.calls = 0`, `also_propagate = []`
-  - after: `cmdstat_set.calls = 1`, `also_propagate = [SET user:1 alice]`
-- **Sources:** [server.c#L4112-L4131](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4112-L4131), [server.c#L4174-L4196](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4174-L4196), [server.c#L3851-L3876](https://github.com/redis/redis/blob/8.10.3/src/server.c#L3851-L3876), [server.c#L3915](https://github.com/redis/redis/blob/8.10.3/src/server.c#L3915), [config.c#L3568](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3568), [config.c#L3579](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3579)
+  - Propagated only if data changed: to AOF and to replicas
+- **Event log:** `main → main · Command · call() 12 µs (E.G.), propagate SET · —`
+- **State (main: client 7):**
+  - before: `검사` = arity ✓ ACL ✓ slot — OOM — → `call()`; `전파 대기` = []; `응답 buffer` = —
+  - after: `검사` = arity ✓ ACL ✓ slot — OOM — → `call()`; `전파 대기` = [SET user:1 alice]; `응답 buffer` = `+OK\r\n`
+- **Sources:** [server.c#L4112-L4131](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4112-L4131), [config.c#L3568](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3568), [config.c#L3579](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3579), [server.c#L2208](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2208), [networking.c#L284-L310](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L284-L310)
 
-#### S11 · `mutate` main · 응답은 먼저 buffer에 쌓는다
-- **Subtitle:** `addReply(shared.ok)`는 소켓에 쓰지 않고 client buffer에 넣고 대기열에 올린다.
+#### S8 · `move` main → io · 잠들기 전: AOF 먼저, 응답은 다음
+- **Subtitle:** `beforeSleep`이 AOF buffer를 먼저 파일에 쓰고, 그다음 응답을 보낸다.
 - **Prose:**
-  > `setCommand`는 미리 만들어 둔 `shared.ok`(`+OK\r\n`)를 `addReply()`합니다.
-  > 응답은 16 KB 고정 buffer에 먼저 들어가고, 넘치면 reply list로 갑니다.
-  > 바로 write handler를 달지 않고 `clients_pending_write`에 올립니다. 루프로 돌아가기 전에 한 번에 쓰면 system call을 아낄 수 있기 때문입니다.
-- **Facts:**
-  - `shared.ok` = `+OK\r\n`
-  - Reply goes to the static buffer first, then to the `c->reply` list
-  - The write handler is installed only if one write cannot send everything
-- **Event log:** `main → main · Command · addReply +OK → clients_pending_write · 5 B`
-- **State (main: client 7 output):**
-  - before: `buf = ""`, `pending_write = no`
-  - after: `buf = "+OK\r\n"` (5 B), `pending_write = yes`
-- **Sources:** [server.c#L2208](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2208), [networking.c#L546-L548](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L546-L548), [networking.c#L284-L310](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L284-L310)
-
-#### S12 · `move` main → io1 · beforeSleep에서 쓰기를 넘긴다
-- **Subtitle:** AOF flush 다음에 `handleClientsWithPendingWrites`가 client를 I/O thread로 돌려보낸다.
-- **Prose:**
-  > main thread가 다시 잠들기 전 `beforeSleep()`에서 먼저 AOF buffer를 flush합니다(`appendfsync always`일 때 응답보다 먼저 디스크에 가야 하므로).
-  > 그다음 `handleClientsWithPendingWrites()`가 응답을 처리합니다.
-  > `io-threads`가 1(기본)이면 main thread가 `writeToClient()`로 직접 씁니다. 1보다 크면 client를 원래 I/O thread로 돌려보내 거기서 씁니다.
+  > 응답은 바로 socket에 쓰지 않고 buffer에 모아 둡니다. event loop가 잠들기 직전 `beforeSleep()`이 AOF를 먼저 쓰고, 그다음 응답을 내보냅니다.
+  > 그래서 `appendfsync always`에서는 응답이 나가기 전에 쓰기가 디스크에 있습니다.
 - **Token:** `call` · `client 7: reply ready`
 - **Facts:**
-  - `beforeSleep` order: `flushAppendOnlyFile` → `handleClientsWithPendingWrites` → `sendPendingClientsToIOThreads`
-  - Default `io-threads 1`: the main thread writes the reply itself
-- **Event log:** `main → io1 · Event loop · sendPendingClientsToIOThreads, 1 client · —`
-- **Sources:** [server.c#L2053-L2111](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2053-L2111), [networking.c#L2958-L2997](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L2958-L2997), [iothread.c#L697-L703](https://github.com/redis/redis/blob/8.10.3/src/iothread.c#L697-L703)
+  - `beforeSleep` order: `flushAppendOnlyFile` → `handleClientsWithPendingWrites`
+  - Batching writes before sleep saves system calls
+- **Event log:** `main → io · Thread · beforeSleep: AOF flush, then reply · —`
+- **Sources:** [server.c#L2053-L2111](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2053-L2111), [networking.c#L2958-L2997](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L2958-L2997)
 
-#### S13 · `move` io1 → client · `+OK` 5바이트
-- **Subtitle:** I/O thread가 응답을 쓰고, 남은 데이터가 있을 때만 write handler를 단다.
+#### S9 · `move` io → client · `+OK`
+- **Subtitle:** 5바이트 응답. 읽지 않는 client의 응답이 쌓이면 output buffer 한도에서 끊긴다.
 - **Prose:**
-  > I/O thread #1이 `+OK\r\n` 5바이트를 socket에 씁니다.
-  > 한 이벤트에서 일반 client에게 쓰는 양은 `NET_MAX_WRITES_PER_EVENT`(64 KB)로 제한합니다. 큰 응답 하나가 루프를 독점하지 못하게 하려는 것입니다.
-  > 다 못 쓴 응답은 output buffer에 남고, `client-output-buffer-limit`을 넘으면 client를 끊습니다.
+  > `+OK\r\n`이 client로 갑니다.
+  > client가 응답을 읽지 않으면 output buffer에 쌓입니다. 한도를 넘으면 Redis가 연결을 끊습니다. replica와 pub/sub 연결이 실제로 자주 걸리는 지점입니다.
 - **Token:** `response` · `+OK`
 - **Facts:**
-  - Reply size: 5 bytes (decoder D1.2)
-  - `NET_MAX_WRITES_PER_EVENT`: 64 KB (normal clients)
-  - `client-output-buffer-limit` defaults: normal `0 0 0`, replica `256mb 64mb 60`, pubsub `32mb 8mb 60`
-- **Event log:** `io1 → client · RESP2 · +OK · 5 B`
-- **Record:** D1.2
-- **Sources:** [protocol-spec.md#L152-L154](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L152-L154), [iothread.c#L831-L836](https://github.com/redis/redis/blob/8.10.3/src/iothread.c#L831-L836), [server.h#L125](https://github.com/redis/redis/blob/8.10.3/src/server.h#L125), [networking.c#L2874-L2890](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L2874-L2890), [redis.conf#L2474-L2476](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2474-L2476)
+  - Reply: 5 bytes
+  - `client-output-buffer-limit` (hard, soft, seconds): normal `0 0 0`, replica `256mb 64mb 60`, pubsub `32mb 8mb 60`
+- **Event log:** `io → client · RESP2 · +OK · 5 B`
+- **Record:** D1.2 (`wire`)
+- **Sources:** [protocol-spec.md#L152-L154](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L152-L154), [redis.conf#L2474-L2476](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2474-L2476)
 
-#### S14 · `move` client → io1 · `HELLO 3`로 RESP3 전환
-- **Subtitle:** 연결은 RESP2로 시작하고, `HELLO 3`을 보내야 RESP3가 된다.
-- **Prose:**
-  > 모든 연결은 RESP2로 시작합니다. client가 `HELLO 3`을 보내면 이 연결의 `c->resp`가 3으로 바뀝니다.
-  > RESP3는 map(`%`), set(`~`), null(`_`), double(`,`), boolean(`#`), push(`>`) 같은 타입을 더합니다.
-  > push 데이터(예: client-side caching invalidation)는 응답 사이에 올 수 있지만, 응답 중간에 끼지는 않습니다.
-- **Token:** `request` · `HELLO 3`
-- **Facts:**
-  - Default protocol per connection: RESP2
-  - `HELLO` arity: `-1`
-  - Request size: 22 bytes (`*2\r\n$5\r\nHELLO\r\n$1\r\n3\r\n`)
-- **Event log:** `client → io1 · RESP2 · HELLO 3 · 22 B`
-- **Sources:** [protocol-spec.md#L695](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L695), [protocol-spec.md#L124-L139](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L124-L139), [protocol-spec.md#L612-L621](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L612-L621), [hello.json#L7](https://github.com/redis/redis/blob/8.10.3/src/commands/hello.json#L7), [networking.c#L5011-L5012](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L5011-L5012)
+### Replay
 
-#### S15 · `move` io1 → client · RESP3 map으로 서버 정보를 받는다
-- **Subtitle:** `HELLO` 응답은 7개 항목짜리 map: server, version, proto, id, mode, role, modules.
-- **Prose:**
-  > `HELLO`는 연결 정보를 RESP3 map(`%7`)으로 돌려줍니다. sentinel 모드에서는 `role`이 빠져 6개입니다.
-  > `proto`는 이 연결의 현재 protocol 버전입니다(docs는 "highest supported"라고 쓰지만 코드는 `c->resp`를 넣습니다).
-  > 이후 이 연결에서 없는 키를 `GET`하면 RESP2의 `$-1\r\n` 대신 `_\r\n`이 옵니다.
-- **Token:** `response` · `%7 server redis …`
-- **Facts:**
-  - Map entries: 7 (6 in sentinel mode)
-  - Null: RESP2 `$-1\r\n` (5 B) vs RESP3 `_\r\n` (3 B)
-  - Reply size: 145 bytes with `id 7` and no modules (E.G.; decoder D1.3)
-- **Event log:** `io1 → client · RESP3 · %7 server=redis version=8.10.3 proto=3 · 145 B (E.G.)`
-- **Record:** D1.3, D1.4
-- **Sources:** [networking.c#L5012-L5039](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L5012-L5039), [protocol-spec.md#L717-L728](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L717-L728), [protocol-spec.md#L252](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L252), [protocol-spec.md#L367](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L367), [server.c#L2261-L2262](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2261-L2262)
-
-#### S16 · `mutate` main · 느린 명령 하나가 모두를 기다리게 한다
-- **Subtitle:** 실행은 한 thread이므로 `KEYS *` 같은 O(N) 명령 동안 다른 client는 모두 멈춘다.
-- **Prose:**
-  > I/O threads는 읽기, 쓰기, 파싱만 나눠 가집니다. 명령 실행은 여전히 main thread 하나입니다.
-  > 그래서 큰 `KEYS *`, `SORT`, `LREM`, `SUNION`이 도는 동안 다른 client의 명령은 모두 기다립니다.
-  > 같은 이유로 `MULTI`/`EXEC`, Lua script, function은 실행 중 다른 명령이 끼어들지 않습니다(원자성). 대신 길면 서버 전체가 멈춥니다.
-- **Facts:**
-  - "Redis can serve a single request in every given moment"
-  - `KEYS` in production is called "a VERY common source of latency"
-  - Scripts block all server activity while they run
-- **Event log:** `main → main · Command · KEYS * on 1M keys (E.G.) blocks loop · 300 ms (E.G.)`
-- **State (main: waiting clients):**
-  - before: `running = —`, `waiting = []`
-  - after: `running = client 9: KEYS *`, `waiting = [client 7: GET user:1, client 8: INCR hits]`
-- **Sources:** [latency.md#L174-L177](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/optimization/latency.md#L174-L177), [latency.md#L191-L197](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/optimization/latency.md#L191-L197), [latency.md#L214-L216](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/optimization/latency.md#L214-L216), [transactions.md#L28-L32](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/using-commands/transactions.md#L28-L32), [eval-intro.md#L28-L29](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/programmability/eval-intro.md#L28-L29)
+S2 → S4 → S6 → S8 → S9: client → io → main → mem → io → client.
 
 ### Decoder records
 
-**D1.1 RESP2 request `SET user:1 alice` (36 B).** Layers: array header · bulk 1 · bulk 2 · bulk 3.
+**D1.1 · step S2 · `wire` · `SET user:1 alice` (36 B).**
 
-| Offset | Bytes (text) | Field | Meaning |
-|---|---|---|---|
-| 0–3 | `*3\r\n` | array header | `*` = array, 3 elements |
-| 4–7 | `$3\r\n` | bulk length | `$` = bulk string, 3 bytes |
-| 8–12 | `SET\r\n` | argv[0] | command name (case-insensitive) |
-| 13–16 | `$6\r\n` | bulk length | 6 bytes |
-| 17–24 | `user:1\r\n` | argv[1] | key |
-| 25–28 | `$5\r\n` | bulk length | 5 bytes |
-| 29–35 | `alice\r\n` | argv[2] | value |
-
-Sources: [protocol-spec.md#L94](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L94), [protocol-spec.md#L221-L225](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L221-L225), [protocol-spec.md#L742-L750](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L742-L750).
-
-**D1.2 RESP2 reply `+OK` (5 B).**
-
-| Offset | Bytes | Field | Meaning |
-|---|---|---|---|
-| 0 | `2B` (`+`) | type | simple string |
-| 1–2 | `4F 4B` (`OK`) | payload | no CR or LF allowed inside |
-| 3–4 | `0D 0A` | terminator | CRLF |
-
-Sources: [protocol-spec.md#L152-L154](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L152-L154), [server.c#L2208](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2208).
-
-**D1.3 RESP3 `HELLO 3` reply (145 B, E.G.).** Layers: map header · 7 key/value pairs.
-
-| Bytes (text) | Field | Value | E.G.? |
-|---|---|---|---|
-| `%7\r\n` | map header | 7 pairs (6 in sentinel mode) | |
-| `$6\r\nserver\r\n` `$5\r\nredis\r\n` | server | `redis` | |
-| `$7\r\nversion\r\n` `$6\r\n8.10.3\r\n` | version | `8.10.3` | |
-| `$5\r\nproto\r\n` `:3\r\n` | proto | `3` (integer) | |
-| `$2\r\nid\r\n` `:7\r\n` | id | client id `7` | E.G. |
-| `$4\r\nmode\r\n` `$10\r\nstandalone\r\n` | mode | `standalone` / `cluster` / `sentinel` | |
-| `$4\r\nrole\r\n` `$6\r\nmaster\r\n` | role | `master` or `replica` | |
-| `$7\r\nmodules\r\n` `*0\r\n` | modules | array of loaded modules, empty here | E.G. |
-
-Sources: [networking.c#L5012-L5039](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L5012-L5039), [protocol-spec.md#L502](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L502), [protocol-spec.md#L717-L728](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L717-L728).
-
-**D1.4 Type first bytes (reference card for the decoder legend).**
-
-| Byte | Type | Protocol |
+| Bytes (text) | Field | Meaning |
 |---|---|---|
-| `+` | simple string | RESP2 |
-| `-` | simple error | RESP2 |
-| `:` | integer | RESP2 |
-| `$` | bulk string (`$-1\r\n` = null in RESP2) | RESP2 |
-| `*` | array (`*-1\r\n` = null array in RESP2) | RESP2 |
-| `_` | null | RESP3 |
-| `#` | boolean | RESP3 |
-| `,` | double | RESP3 |
-| `(` | big number | RESP3 |
-| `!` | bulk error | RESP3 |
-| `=` | verbatim string | RESP3 |
-| `%` | map | RESP3 |
-| `\|` | attribute | RESP3 |
-| `~` | set | RESP3 |
-| `>` | push | RESP3 |
+| `*3\r\n` | array header | 3 elements |
+| `$3\r\nSET\r\n` | argv[0] | command |
+| `$6\r\nuser:1\r\n` | argv[1] | key |
+| `$5\r\nalice\r\n` | argv[2] | value |
 
-Sources: [protocol-spec.md#L124-L139](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L124-L139), null array at [protocol-spec.md#L330-L335](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L330-L335).
+Source: [protocol-spec.md#L742-L750](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L742-L750).
+
+**D1.2 · step S9 · `wire` · `+OK` (5 B).**
+
+| Bytes | Field | Meaning |
+|---|---|---|
+| `+` | type | simple string |
+| `OK` | payload | |
+| `\r\n` | terminator | |
+
+Footer legend (first byte → type): `+` simple string, `-` error, `:` integer, `$` bulk string, `*` array; RESP3 adds `_` null, `%` map, `>` push and others. Source: [protocol-spec.md#L124-L139](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/protocol-spec.md#L124-L139).
 
 ### Self-check
 
-1. **Q:** `io-threads 4`이면 명령을 실행하는 thread는 몇 개인가? **A:** 1개(main thread). I/O thread 3개는 socket read/write와 RESP 파싱만 하고, 명령 실행은 main thread에 넘긴다.
-2. **Q:** `SET user:1 alice`의 RESP2 요청은 몇 바이트이고 어떻게 생겼나? **A:** 36바이트. `*3\r\n$3\r\nSET\r\n$6\r\nuser:1\r\n$5\r\nalice\r\n`.
-3. **Q:** `processCommand`가 `call()` 전에 하는 검사 네 가지는? **A:** 명령 조회와 arity, ACL, cluster slot 검사(MOVED/ASK), maxmemory 검사(필요하면 eviction 후 `DENYOOM` 명령 거절). 그리고 MULTI 중이면 큐에 넣는다.
-4. **Q:** 응답을 바로 socket에 쓰지 않고 `clients_pending_write`에 올리는 이유는? **A:** 루프가 잠들기 전 `beforeSleep`에서 한 번에 써서 write handler 등록과 system call을 줄이기 위해서. 다 못 쓸 때만 write handler를 단다.
-5. **Q:** `appendfsync always`에서 응답 전에 무엇이 끝나 있어야 하고, 코드에서 그 순서를 지키는 곳은? **A:** AOF write와 fsync. `beforeSleep`이 `flushAppendOnlyFile`을 `handleClientsWithPendingWrites`보다 먼저 부른다.
-6. **Q:** RESP3에서 없는 키의 `GET` 응답은? RESP2에서는? **A:** RESP3 `_\r\n`, RESP2 `$-1\r\n`.
-7. **Q:** `KEYS *`가 위험한 이유를 thread 모델로 설명하라. **A:** 명령 실행은 main thread 하나가 순서대로 하므로, O(N) 명령이 도는 동안 다른 모든 client의 명령이 대기한다.
+1. **Q:** `io-threads 4`이면 명령을 실행하는 thread는 몇 개인가? **A:** 1개. I/O thread는 읽기, 파싱, 쓰기만 한다.
+2. **Q:** `-OOM`은 어느 단계에서, 어떤 명령에 나오나? **A:** `processCommand`의 메모리 검사에서, eviction으로도 메모리를 못 비웠을 때 쓰기(`DENYOOM`) 명령에.
+3. **Q:** 응답이 output buffer에 쌓이다 연결이 끊기는 경우는? **A:** client가 읽는 속도보다 응답이 빨리 쌓일 때. replica 256mb/64mb 60s, pubsub 32mb/8mb 60s 한도를 넘으면 끊는다.
 
 ---
 
 ## Lesson 2. `encodings`: 작은 자료구조는 listpack, 커지면 변신한다
 
-**Goal.** Watch one hash, one set, one list, and one sorted set change their internal encoding as they cross the configured thresholds, then watch the keyspace dict grow with incremental rehash.
+**Goal.** See why a small hash costs a fraction of a big one, when it converts, and why the memory jump is one-way.
 
-**Interview questions it answers**
-- Redis hash에 필드 10개를 넣으면 메모리에서 어떤 구조인가? 언제 hashtable로 바뀌는가?
-- sorted set은 왜 skiplist와 dict를 함께 쓰는가? `ZSCORE`와 `ZRANGE`의 복잡도는?
-- ziplist는 어디 갔나? (7.0에서 listpack으로 교체, 설정 이름은 alias로 남음)
-- Redis dict의 rehash는 왜 incremental이고, 그동안 조회는 어떻게 하나? fork 중에는 왜 resize를 피하나?
+**Critical path.** write → size check against the thresholds → stays compact (listpack / intset), or converts once to hashtable / skiplist / quicklist.
 
-**Nodes**
+**Interview and incident questions**
+- 작은 hash/zset은 메모리에서 어떤 구조인가? 언제 바뀌나?
+- sorted set은 왜 skiplist와 dict를 함께 쓰나?
+- 필드를 조금 늘렸을 뿐인데 메모리가 크게 뛴 이유는?
 
-| id | label | sublabel | kind | Illustration idea | First appears |
-|---|---|---|---|---|---|
-| `client` | redis-cli | | `client` | Laptop with terminal | S2 |
-| `main` | Main thread | `t_hash.c` / `t_zset.c` | `framework` | Gear | S2 |
-| `robj` | redisObject | type · encoding · lru | `storage` | A tag card with 4 punched fields | S1 |
-| `hash` | `user:1` | hash | `storage` | Flat strip of cells (listpack) that later unfolds into a bucket rack (hashtable) | S2 |
-| `set` | `tags` | set | `storage` | Row of number tiles that widen | S5 |
-| `list` | `queue` | list | `storage` | Chain of small boxes (quicklist nodes) | S7 |
-| `zset` | `lb` | sorted set | `storage` | Multi-level ladder (skiplist) beside a key rack (dict) | S9 |
-| `dict` | db0 dict | `ht_table[0]` / `[1]` | `storage` | Two bucket racks side by side with a moving cursor | S12 |
+**Overview (one line).** 8.10은 같은 schema의 hash에서 field 이름을 공유하는 "compact hash" 인코딩을 opt-in(기본 꺼짐)으로 추가했다(00-RELEASENOTES).
 
-**Layer selector:** `Object` (redisObject) · `Encoding` (listpack, intset, quicklist, skiplist) · `Dict` (hash table, rehash).
+**Nodes:** `client` (redis-cli), `main`, `mem` (objects).
+
+**State panels**
+
+| Node | Panel | Columns | Initial rows |
+|---|---|---|---|
+| `mem` | objects | key · type · encoding · size | `db0 dict` · — · hashtable · 4 buckets, 4 keys |
+
+**Layer selector:** `Command` · `Encoding`.
 
 ### Steps
 
-#### S1 · `mutate` robj · 모든 값은 16바이트 redisObject로 시작한다
-- **Subtitle:** type 4비트, encoding 4비트, LRU/LFU 24비트, 그리고 실제 데이터를 가리키는 `ptr`.
+#### S1 · `move` client → main · `HSET user:1 name redis age 7`
+- **Subtitle:** 필드 2개짜리 작은 hash를 만든다.
 - **Prose:**
-  > Redis의 모든 값은 `redisObject`(`robj`)입니다. `type`은 string/list/set/zset/hash 같은 논리 타입, `encoding`은 메모리 속 실제 구조입니다.
-  > `lru` 24비트는 LRU 시계 또는 LFU 데이터(상위 16비트 시간, 하위 8비트 빈도)를 담습니다(lesson 3).
-  > 8.x에서는 `refcount`가 23비트로 줄고 `iskvobj`, `metabits`가 생겼습니다. 키를 robj 바로 뒤에 붙여 저장하는 `kvobj` 때문입니다.
-- **Facts:**
-  - Fields: `type:4`, `encoding:4`, `refcount:23`, `iskvobj:1`, `metabits:8`, `lru:24`, `ptr`
-  - `OBJECT ENCODING` names: `raw`, `int`, `embstr`, `listpack`, `listpackex`, `quicklist`, `intset`, `hashtable`, `skiplist`, `stream`, plus 8.10's `template-listpack`, `template-array`
-  - String: integer-looking strings of ≤ 20 chars → `int`; ≤ 44 bytes → `embstr`; longer → `raw`
-- **Event log:** `main → robj · Object · createObject(OBJ_HASH, OBJ_ENCODING_LISTPACK) · 16 B header`
-- **State (robj: fields of `user:1`):**
-  - before: `—`
-  - after: `type = hash`, `encoding = listpack`, `refcount = 1`, `lru = 0x2A51F3 (E.G.)`
-- **Sources:** [object.h#L92-L113](https://github.com/redis/redis/blob/8.10.3/src/object.h#L92-L113), [object.h#L24-L42](https://github.com/redis/redis/blob/8.10.3/src/object.h#L24-L42), [object.h#L75-L90](https://github.com/redis/redis/blob/8.10.3/src/object.h#L75-L90), [object.c#L1302-L1316](https://github.com/redis/redis/blob/8.10.3/src/object.c#L1302-L1316), [object.c#L332-L341](https://github.com/redis/redis/blob/8.10.3/src/object.c#L332-L341), [object.c#L960-L967](https://github.com/redis/redis/blob/8.10.3/src/object.c#L960-L967)
-
-#### S2 · `move` client → main · `HSET user:1 name redis age 7`
-- **Subtitle:** 필드가 적고 값이 짧으면 hash는 listpack 하나로 만들어진다.
-- **Prose:**
-  > 새 hash는 listpack으로 시작합니다. field와 value를 차례로 붙여 넣는 연속된 메모리 한 덩어리입니다.
-  > 포인터가 없어 작은 hash에서는 hashtable보다 메모리를 훨씬 적게 씁니다(docs: 최대 10배, 평균 5배).
-  > 필드 수가 `hash-max-listpack-entries`(512) 이하이고 모든 field/value가 `hash-max-listpack-value`(64바이트) 이하인 동안 listpack을 유지합니다.
+  > 모든 값은 논리 타입(`type`)과 메모리 속 구조(`encoding`)를 가진 객체입니다. 같은 hash라도 크기에 따라 encoding이 다릅니다.
 - **Token:** `request` · `HSET user:1 name redis age 7`
 - **Facts:**
-  - `hash-max-listpack-entries`: 512; `hash-max-listpack-value`: 64
-  - Old names `hash-max-ziplist-*` still work as aliases (7.0 rename)
-  - Docs: small aggregates use "up to 10 times less memory"
+  - `OBJECT ENCODING <key>` shows the encoding
+  - Common encodings: `listpack`, `intset`, `hashtable`, `skiplist`, `quicklist`, `int`, `embstr`, `raw`
 - **Event log:** `client → main · RESP2 · HSET user:1 name redis age 7 · 63 B`
-- **Sources:** [redis.conf#L2215-L2216](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2215-L2216), [config.c#L3593](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3593), [t_hash.c#L1925-L1928](https://github.com/redis/redis/blob/8.10.3/src/t_hash.c#L1925-L1928), [memory-optimization.md#L18-L19](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/optimization/memory-optimization.md#L18-L19), [memory-optimization.md#L36-L44](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/optimization/memory-optimization.md#L36-L44)
+- **Sources:** [object.c#L1302-L1316](https://github.com/redis/redis/blob/8.10.3/src/object.c#L1302-L1316), [object-encoding.md#L62-L93](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/object-encoding.md#L62-L93)
 
-#### S3 · `mutate` hash · listpack 27바이트
-- **Subtitle:** 6바이트 header, entry 4개, 끝 표시 `0xFF`. entry마다 끝에 자기 길이(backlen)를 붙인다.
+#### S2 · `mutate` mem · 작으면 listpack 한 덩어리
+- **Subtitle:** field와 value를 포인터 없이 연속 메모리에 나란히 둔다.
 - **Prose:**
-  > listpack은 전체 바이트 수(32비트)와 원소 수(16비트) header로 시작해 `0xFF`로 끝납니다.
-  > 각 entry는 encoding+data 뒤에 backlen을 붙입니다. backlen 덕분에 뒤에서 앞으로도 걸어갈 수 있습니다.
-  > 문자열 `"7"`은 정수로 바뀌어 1바이트(7-bit uint)로 저장됩니다.
+  > 작은 hash는 listpack, 즉 field와 value를 이어 붙인 연속 메모리 한 덩어리입니다. 포인터가 없어 hashtable보다 훨씬 작습니다.
+  > 찾기는 선형 탐색이지만 원소가 적어 빠릅니다.
 - **Facts:**
-  - Header: 6 bytes (`uint32` total bytes + `uint16` count, little-endian)
-  - End byte: `0xFF`
-  - 6-bit string: first byte `10xxxxxx`; 7-bit uint: `0xxxxxxx`
-  - This example: 27 bytes (decoder D2.1)
-- **Event log:** `main → hash · Encoding · lpAppend ×4 · 27 B`
-- **State (hash: `user:1`):**
-  - before: `encoding = —`, `entries = 0`, `bytes = 0`
-  - after: `encoding = listpack`, `entries = 4 (2 fields)`, `bytes = 27`
-- **Record:** D2.1
-- **Sources:** [listpack.c#L27-L28](https://github.com/redis/redis/blob/8.10.3/src/listpack.c#L27-L28), [listpack.c#L34-L76](https://github.com/redis/redis/blob/8.10.3/src/listpack.c#L34-L76), [listpack.c#L321-L373](https://github.com/redis/redis/blob/8.10.3/src/listpack.c#L321-L373), [listpack.c#L85-L102](https://github.com/redis/redis/blob/8.10.3/src/listpack.c#L85-L102)
+  - `hash-max-listpack-entries`: 512; `hash-max-listpack-value`: 64 bytes
+  - Docs: small aggregates use "up to 10 times less memory"
+- **Event log:** `main → mem · Encoding · user:1 created as listpack · 27 B (E.G.)`
+- **State (mem: objects):**
+  - before: `db0 dict` · — · hashtable · 4 buckets, 4 keys
+  - after: `db0 dict` · — · hashtable · 4 buckets, 5 keys; `user:1` · hash · listpack · 2 fields
+- **Sources:** [redis.conf#L2215-L2216](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2215-L2216), [memory-optimization.md#L18-L19](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/optimization/memory-optimization.md#L18-L19), [memory-optimization.md#L36-L44](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/optimization/memory-optimization.md#L36-L44)
 
-#### S4 · `mutate` hash · 65바이트 값 하나에 hashtable로 바뀐다
-- **Subtitle:** `HSET user:1 bio <65바이트>` — value가 64바이트를 넘는 순간 변환된다. 되돌아가지 않는다.
+#### S3 · `mutate` mem · 한도를 넘으면 hashtable로, 되돌아가지 않는다
+- **Subtitle:** 65바이트 값 하나에 전체가 hashtable로 바뀐다. 줄어도 listpack으로 돌아오지 않는다.
 - **Prose:**
-  > `hashTypeTryConversion()`은 새 field나 value가 `hash-max-listpack-value`보다 길거나 field 수가 512를 넘으면 hashtable로 바꿉니다.
-  > 변환은 한 방향입니다. 나중에 필드를 지워 작아져도 listpack으로 돌아가지 않습니다.
-  > `HEXPIRE`(7.4+)로 field에 TTL을 주면 listpack은 `listpackex`가 됩니다. 8.10의 compact hash(`template-listpack`)는 기본값 0으로 꺼져 있습니다.
+  > field 수가 512를 넘거나 field/value 하나가 64바이트를 넘는 순간 hashtable로 바뀝니다.
+  > 바뀐 hash는 필드를 지워도 listpack으로 돌아가지 않습니다. 긴 값 하나가 메모리를 크게 늘리는 이유입니다.
 - **Facts:**
-  - Trigger: field count > 512, or any field/value > 64 bytes
-  - HT → listpack: never (`serverPanic("Not implemented")`)
-  - `hash-min-template-entries` / `hash-max-template-entries`: default 0 (compact hashes off)
-- **Event log:** `main → hash · Encoding · hashTypeConvert listpack → hashtable · 65 B value`
-- **State (hash: `user:1`):**
-  - before: `encoding = listpack`, `fields = 2`
-  - after: `encoding = hashtable`, `fields = 3`
-- **Sources:** [t_hash.c#L1561-L1595](https://github.com/redis/redis/blob/8.10.3/src/t_hash.c#L1561-L1595), [t_hash.c#L1147-L1148](https://github.com/redis/redis/blob/8.10.3/src/t_hash.c#L1147-L1148), [t_hash.c#L2281-L2282](https://github.com/redis/redis/blob/8.10.3/src/t_hash.c#L2281-L2282), [redis.conf#L2235](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2235), [redis.conf#L2243](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2243), [00-RELEASENOTES#L77-L78](https://github.com/redis/redis/blob/8.10.3/00-RELEASENOTES#L77-L78)
+  - Trigger: entries > 512 or any field/value > 64 bytes
+  - Hash hashtable → listpack: never
+- **Event log:** `main → mem · Encoding · user:1 listpack → hashtable · 65 B value`
+- **State (mem: objects):**
+  - before: `db0 dict` · — · hashtable · 4 buckets, 5 keys; `user:1` · hash · listpack · 2 fields
+  - after: `db0 dict` · — · hashtable · 4 buckets, 5 keys; `user:1` · hash · hashtable · 3 fields
+- **Sources:** [t_hash.c#L1561-L1595](https://github.com/redis/redis/blob/8.10.3/src/t_hash.c#L1561-L1595), [t_hash.c#L1147-L1148](https://github.com/redis/redis/blob/8.10.3/src/t_hash.c#L1147-L1148), [memory-optimization.md#L55-L56](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/optimization/memory-optimization.md#L55-L56)
 
-#### S5 · `mutate` set · 정수만 있으면 intset
-- **Subtitle:** `SADD tags 1 2 3` — 정렬된 정수 배열. 가장 작은 폭 INT16으로 시작한다.
+#### S4 · `mutate` mem · 정수만 있는 set은 intset
+- **Subtitle:** `SADD tags 1 2 3` — 정렬된 정수 배열.
 - **Prose:**
-  > 원소가 모두 정수이고 512개(`set-max-intset-entries`) 이하이면 set은 intset입니다.
-  > intset은 header(encoding, length)와 정렬된 정수 배열이고, 찾기는 binary search입니다.
-  > 새 intset은 원소당 2바이트(INT16)로 시작합니다.
-- **Token:** `request` · `SADD tags 1 2 3`
+  > 원소가 모두 정수이고 512개 이하면 set은 정렬된 정수 배열(intset)입니다. 찾기는 binary search입니다.
 - **Facts:**
   - `set-max-intset-entries`: 512
-  - Header: `uint32 encoding`, `uint32 length`; values little-endian
-  - Lookup: binary search, O(log N)
-- **Event log:** `main → set · Encoding · intsetAdd ×3, INT16 · 14 B`
-- **State (set: `tags`):**
-  - before: `—`
-  - after: `encoding = intset (INT16)`, `contents = [1, 2, 3]`, `bytes = 14`
-- **Record:** D2.2 (before)
-- **Sources:** [redis.conf#L2319](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2319), [intset.h#L35-L39](https://github.com/redis/redis/blob/8.10.3/src/intset.h#L35-L39), [intset.c#L41-L43](https://github.com/redis/redis/blob/8.10.3/src/intset.c#L41-L43), [intset.c#L60-L75](https://github.com/redis/redis/blob/8.10.3/src/intset.c#L60-L75), [intset.c#L98-L102](https://github.com/redis/redis/blob/8.10.3/src/intset.c#L98-L102), [intset.c#L123-L162](https://github.com/redis/redis/blob/8.10.3/src/intset.c#L123-L162), [t_set.c#L46-L57](https://github.com/redis/redis/blob/8.10.3/src/t_set.c#L46-L57)
+  - Lookup: binary search over a sorted array
+- **Event log:** `main → mem · Encoding · tags created as intset · 3 members`
+- **State (mem: objects):**
+  - before: `db0 dict` · — · hashtable · 4 buckets, 5 keys; `user:1` · hash · hashtable · 3 fields
+  - after: `db0 dict` · — · hashtable · 4 buckets, 6 keys; `user:1` · hash · hashtable · 3 fields; `tags` · set · intset · 3 members
+- **Sources:** [redis.conf#L2319](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2319), [intset.c#L123-L162](https://github.com/redis/redis/blob/8.10.3/src/intset.c#L123-L162), [t_set.c#L46-L57](https://github.com/redis/redis/blob/8.10.3/src/t_set.c#L46-L57)
 
-#### S6 · `mutate` set · 70000이 들어오면 INT32로 upgrade, 문자열이 오면 listpack
-- **Subtitle:** 폭이 넓은 정수는 배열 전체를 다시 쓰게 하고, 정수가 아닌 값은 encoding 자체를 바꾼다.
+#### S5 · `mutate` mem · 문자열이 들어오면 listpack
+- **Subtitle:** `SADD tags redis` — 정수가 아니므로 intset을 그만둔다.
 - **Prose:**
-  > `SADD tags 70000`: 70000은 INT16 범위를 넘으므로 모든 원소를 4바이트로 넓힙니다. 새 값은 기존 범위 밖이라 끝(음수면 앞)에 붙습니다. 다시 좁아지지는 않습니다.
-  > `SADD tags redis`: 정수가 아니므로 intset을 그만둡니다. 128개(`set-max-listpack-entries`) 이하이고 64바이트 이하면 listpack, 아니면 hashtable입니다.
+  > 정수가 아닌 원소가 들어오면 set은 listpack으로, 128개를 넘거나 원소가 64바이트를 넘으면 hashtable로 바뀝니다.
 - **Facts:**
-  - Encodings: INT16 → INT32 → INT64 (2/4/8 bytes per element); no downgrade
-  - `set-max-listpack-entries`: 128; `set-max-listpack-value`: 64 (setting added in 7.2)
-  - Back to intset only for `*STORE` results with integers only
-- **Event log:** `main → set · Encoding · intsetUpgradeAndAdd INT16 → INT32 · 24 B`
-- **State (set: `tags`):**
-  - before: `encoding = intset (INT16)`, `contents = [1, 2, 3]`, `bytes = 14`
-  - after (70000): `encoding = intset (INT32)`, `contents = [1, 2, 3, 70000]`, `bytes = 24`
-  - after (`redis`): `encoding = listpack`, `members = 5`
-- **Record:** D2.2 (after)
-- **Sources:** [intset.c#L165-L192](https://github.com/redis/redis/blob/8.10.3/src/intset.c#L165-L192), [intset.c#L216-L223](https://github.com/redis/redis/blob/8.10.3/src/intset.c#L216-L223), [intset.c#L242-L259](https://github.com/redis/redis/blob/8.10.3/src/intset.c#L242-L259), [t_set.c#L186-L229](https://github.com/redis/redis/blob/8.10.3/src/t_set.c#L186-L229), [redis.conf#L2325-L2326](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2325-L2326), [t_set.c#L1547](https://github.com/redis/redis/blob/8.10.3/src/t_set.c#L1547), [memory-optimization.md#L46-L53](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/optimization/memory-optimization.md#L46-L53)
+  - `set-max-listpack-entries`: 128; `set-max-listpack-value`: 64
+  - Order: intset → listpack → hashtable
+- **Event log:** `main → mem · Encoding · tags intset → listpack · 4 members`
+- **State (mem: objects):**
+  - before: `db0 dict` · — · hashtable · 4 buckets, 6 keys; `user:1` · hash · hashtable · 3 fields; `tags` · set · intset · 3 members
+  - after: `db0 dict` · — · hashtable · 4 buckets, 6 keys; `user:1` · hash · hashtable · 3 fields; `tags` · set · listpack · 4 members
+- **Sources:** [t_set.c#L186-L229](https://github.com/redis/redis/blob/8.10.3/src/t_set.c#L186-L229), [redis.conf#L2325-L2326](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2325-L2326)
 
-#### S7 · `mutate` list · listpack 하나가 8 KB를 넘으면 quicklist
-- **Subtitle:** `list-max-listpack-size -2`는 "node 하나당 8 KB". 넘으면 listpack들의 linked list가 된다.
+#### S6 · `mutate` mem · list는 8 KB listpack의 사슬 (quicklist)
+- **Subtitle:** list가 listpack 하나의 한도를 넘으면, listpack 여러 개를 이은 quicklist가 된다.
 - **Prose:**
-  > 작은 list는 listpack 하나입니다. 크기가 `list-max-listpack-size` 한도를 넘으면 quicklist로 바뀝니다.
-  > quicklist는 listpack node들을 양방향으로 이은 list입니다. node 하나의 크기는 기본 8 KB로 제한됩니다.
-  > list가 줄어들면 node가 하나이고 한도의 절반 아래일 때만 다시 listpack으로 돌아갑니다. 경계에서 계속 바뀌는 것을 막기 위해서입니다.
+  > 작은 list는 listpack 하나, 크면 listpack node들을 양방향으로 이은 quicklist입니다. node 하나는 기본 8 KB입니다.
+  > 양 끝 push/pop은 O(1), 가운데 index 접근은 O(N)입니다.
 - **Facts:**
-  - `list-max-listpack-size`: `-2` = 8 KB per node (−1..−5 = 4/8/16/32/64 KB)
-  - Element bigger than the limit: its own `PLAIN` node
-  - quicklist → listpack: only with one node and below half the limit
-- **Event log:** `main → list · Encoding · listTypeTryConversion listpack → quicklist · 8 KB`
-- **State (list: `queue`):**
-  - before: `encoding = listpack`, `bytes = 8190 (E.G.)`
-  - after: `encoding = quicklist`, `nodes = 2`, `fill = -2`
-- **Sources:** [redis.conf#L2286-L2296](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2286-L2296), [quicklist.c#L48](https://github.com/redis/redis/blob/8.10.3/src/quicklist.c#L48), [quicklist.c#L487-L538](https://github.com/redis/redis/blob/8.10.3/src/quicklist.c#L487-L538), [t_list.c#L40-L95](https://github.com/redis/redis/blob/8.10.3/src/t_list.c#L40-L95), [config.c#L3511](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3511)
+  - `list-max-listpack-size`: −2 (8 KB per node)
+  - Back to listpack only when one node is left and under half the limit
+- **Event log:** `main → mem · Encoding · queue listpack → quicklist · 2 nodes (E.G.)`
+- **State (mem: objects):**
+  - before: `db0 dict` · — · hashtable · 4 buckets, 6 keys; `user:1` · hash · hashtable · 3 fields; `tags` · set · listpack · 4 members
+  - after: `db0 dict` · — · hashtable · 4 buckets, 7 keys; `user:1` · hash · hashtable · 3 fields; `tags` · set · listpack · 4 members; `queue` · list · quicklist · 2 nodes
+- **Sources:** [redis.conf#L2286-L2296](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2286-L2296), [t_list.c#L40-L95](https://github.com/redis/redis/blob/8.10.3/src/t_list.c#L40-L95)
 
-#### S8 · `mutate` list · 가운데 node는 LZF로 압축할 수 있다
-- **Subtitle:** `list-compress-depth`(기본 0, 끔)를 켜면 양 끝 node를 빼고 압축한다.
+#### S7 · `mutate` mem · sorted set: 129번째 member에서 skiplist + dict
+- **Subtitle:** score 순 범위는 skiplist, member로 score 찾기는 dict.
 - **Prose:**
-  > quicklist node는 `prev`, `next`, `entry`, `sz`, `count`, `encoding`(RAW/LZF), `container`(PLAIN/PACKED) 등을 가집니다.
-  > `list-compress-depth 1`이면 head와 tail node 하나씩은 그대로 두고 가운데만 LZF로 압축합니다. push/pop이 양 끝에서 일어나기 때문입니다.
-  > 48바이트보다 작은 node는 압축하지 않고, 8바이트 이상 줄지 않으면 압축을 버립니다.
-- **Facts:**
-  - `list-compress-depth`: 0 (no compression)
-  - Minimum node size to try LZF: 48 bytes; must save ≥ 8 bytes
-  - quicklistNode struct: 32 bytes
-- **Event log:** `main → list · Encoding · __quicklistCompressNode node 2 · 8 KB → 3 KB (E.G.)`
-- **State (list: nodes, `list-compress-depth 1`):**
-  - before: `[RAW, RAW, RAW]`
-  - after: `[RAW, LZF, RAW]`
-- **Sources:** [quicklist.h#L38-L59](https://github.com/redis/redis/blob/8.10.3/src/quicklist.h#L38-L59), [quicklist.c#L78-L83](https://github.com/redis/redis/blob/8.10.3/src/quicklist.c#L78-L83), [quicklist.c#L240-L262](https://github.com/redis/redis/blob/8.10.3/src/quicklist.c#L240-L262), [redis.conf#L2298-L2312](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2298-L2312)
-
-#### S9 · `mutate` zset · 작은 sorted set도 listpack
-- **Subtitle:** `ZADD lb 100 alice 90 bob` — member와 score를 score 순서로 나란히 저장한다.
-- **Prose:**
-  > sorted set도 128개(`zset-max-listpack-entries`) 이하, member 64바이트 이하이면 listpack입니다.
-  > member와 score를 한 쌍씩, score 순으로 붙여 둡니다. 원소가 적으면 선형 탐색도 충분히 빠릅니다.
-- **Token:** `request` · `ZADD lb 100 alice 90 bob`
+  > 작은 sorted set은 listpack(128개, 64바이트까지)입니다. 넘으면 skiplist와 dict를 함께 쓰는 구조로 바뀝니다.
+  > `ZSCORE`는 dict로 O(1), `ZRANGE`와 `ZRANK`는 skiplist로 O(log N)입니다. 같은 원소를 두 구조가 함께 가리킵니다.
 - **Facts:**
   - `zset-max-listpack-entries`: 128; `zset-max-listpack-value`: 64
-  - Old alias: `zset-max-ziplist-*`
-- **Event log:** `main → zset · Encoding · zsetTypeCreate listpack · 4 entries`
-- **State (zset: `lb`):**
-  - before: `—`
-  - after: `encoding = listpack`, `[bob 90, alice 100]`
-- **Sources:** [redis.conf#L2331-L2332](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2331-L2332), [t_zset.c#L1413-L1424](https://github.com/redis/redis/blob/8.10.3/src/t_zset.c#L1413-L1424), [config.c#L3605-L3607](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3605-L3607)
+  - `ZRANGE` by rank or score: O(log N + M) for M returned members
+- **Event log:** `main → mem · Encoding · lb listpack → skiplist · 129 members`
+- **State (mem: objects):**
+  - before: `db0 dict` · — · hashtable · 4 buckets, 7 keys; `user:1` · hash · hashtable · 3 fields; `tags` · set · listpack · 4 members; `queue` · list · quicklist · 2 nodes
+  - after: `db0 dict` · — · hashtable · 4 buckets, 8 keys; `user:1` · hash · hashtable · 3 fields; `tags` · set · listpack · 4 members; `queue` · list · quicklist · 2 nodes; `lb` · zset · skiplist · 129 members
+- **Sources:** [redis.conf#L2331-L2332](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2331-L2332), [t_zset.c#L1655-L1659](https://github.com/redis/redis/blob/8.10.3/src/t_zset.c#L1655-L1659), [t_zset.c#L20-L26](https://github.com/redis/redis/blob/8.10.3/src/t_zset.c#L20-L26), [zrange.md#L66](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/zrange.md#L66)
 
-#### S10 · `mutate` zset · 129번째 member에서 skiplist + dict
-- **Subtitle:** `zzlLength+1 > 128`이거나 member가 64바이트를 넘으면 변환한다. `ZREM`으로 줄어도 돌아가지 않는다.
+#### S8 · `mutate` mem · hashtable은 조금씩 옮기며 커진다 (incremental rehash)
+- **Subtitle:** 키 수가 bucket 수에 닿으면 2배 table을 만들고, 명령마다 조금씩, 한가하면 1 ms씩 옮긴다.
 - **Prose:**
-  > `ZADD`가 129번째 원소를 넣으려 하면 `zsetConvertAndExpand()`로 skiplist encoding이 됩니다.
-  > 이 encoding은 dict(member → node)와 skiplist(score 순)를 함께 가집니다.
-  > listpack으로 돌아가는 것은 `ZUNIONSTORE` 같은 store 결과와 RDB load 때뿐입니다.
+  > keyspace도 hashtable입니다. 꽉 차면 두 배 table을 만들고 한 번에 옮기지 않습니다. 명령마다 bucket 하나씩, cron이 1 ms씩 옮깁니다.
+  > 옮기는 동안 조회는 두 table을 다 보고, 새 키는 새 table에 넣습니다. fork 자식이 있으면 resize를 미룹니다(lesson 8).
 - **Facts:**
-  - Trigger: `zzlLength(zl)+1 > zset_max_listpack_entries` or `sdslen(ele) > zset_max_listpack_value`
-  - Back to listpack: store commands and RDB load only
-- **Event log:** `main → zset · Encoding · zsetConvert listpack → skiplist · 129 members`
-- **State (zset: `lb`):**
-  - before: `encoding = listpack`, `members = 128`
-  - after: `encoding = skiplist`, `members = 129`, `dict = 129 entries`
-- **Sources:** [t_zset.c#L1655-L1659](https://github.com/redis/redis/blob/8.10.3/src/t_zset.c#L1655-L1659), [t_zset.c#L3148](https://github.com/redis/redis/blob/8.10.3/src/t_zset.c#L3148), [rdb.c#L3112](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L3112)
+  - Expand at keys ≥ buckets; with a fork child only at keys ≥ 4 × buckets
+  - `activerehashing yes`: up to 1 ms per cron tick
+- **Event log:** `main → mem · Encoding · db0 dict 4 → 8 buckets, rehashing · —`
+- **State (mem: objects):**
+  - before: `db0 dict` · — · hashtable · 4 buckets, 8 keys; `user:1` · hash · hashtable · 3 fields; `tags` · set · listpack · 4 members; `queue` · list · quicklist · 2 nodes; `lb` · zset · skiplist · 129 members
+  - after: `db0 dict` · — · hashtable · rehashing 4 → 8 buckets, 8 keys; `user:1` · hash · hashtable · 3 fields; `tags` · set · listpack · 4 members; `queue` · list · quicklist · 2 nodes; `lb` · zset · skiplist · 129 members
+- **Sources:** [dict.c#L1658-L1673](https://github.com/redis/redis/blob/8.10.3/src/dict.c#L1658-L1673), [dict.c#L471-L473](https://github.com/redis/redis/blob/8.10.3/src/dict.c#L471-L473), [dict.c#L786-L789](https://github.com/redis/redis/blob/8.10.3/src/dict.c#L786-L789), [dict.c#L550-L552](https://github.com/redis/redis/blob/8.10.3/src/dict.c#L550-L552), [server.h#L147](https://github.com/redis/redis/blob/8.10.3/src/server.h#L147), [redis.conf#L2414-L2432](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2414-L2432), [server.c#L819-L833](https://github.com/redis/redis/blob/8.10.3/src/server.c#L819-L833)
 
-#### S11 · `mutate` zset · skiplist의 층은 확률로 정한다
-- **Subtitle:** 새 node의 level은 25% 확률로 한 층씩 올라가고, 최대 32층이다.
-- **Prose:**
-  > `zslRandomLevel()`은 `ZSKIPLIST_P = 0.25` 확률로 level을 하나씩 올립니다. 최대 `ZSKIPLIST_MAXLEVEL = 32`입니다.
-  > 각 층의 `forward` 포인터는 `span`(건너뛰는 원소 수)을 가집니다. 내려가며 span을 더하면 `ZRANK`가 나옵니다.
-  > 8.x에서는 member sds를 node 뒤에 붙여 저장하고, level 0의 span 자리를 node 정보로 씁니다.
-- **Facts:**
-  - `ZSKIPLIST_MAXLEVEL`: 32; `ZSKIPLIST_P`: 0.25
-  - Node: `score`, `backward`, `level[]{forward, span}`, embedded sds member
-  - Rank = sum of spans on the search path (1-based)
-- **Event log:** `main → zset · Encoding · zslInsert carol score 95, level 2 (E.G.) · —`
-- **State (zset: skiplist levels, E.G.):**
-  - before: `L2: bob ───────────→ dave`, `L1: bob → alice → dave`
-  - after: `L2: bob → carol ───→ dave`, `L1: bob → carol → alice → dave`
-- **Sources:** [server.h#L656-L657](https://github.com/redis/redis/blob/8.10.3/src/server.h#L656-L657), [t_zset.c#L254-L260](https://github.com/redis/redis/blob/8.10.3/src/t_zset.c#L254-L260), [server.h#L1791-L1819](https://github.com/redis/redis/blob/8.10.3/src/server.h#L1791-L1819), [t_zset.c#L640-L661](https://github.com/redis/redis/blob/8.10.3/src/t_zset.c#L640-L661)
+### Replay
 
-#### S12 · `move` main → zset · `ZSCORE`는 dict, `ZRANGE`는 skiplist
-- **Subtitle:** 두 구조를 같이 두는 이유: member로 찾기는 O(1), 순서로 훑기는 O(log N + M).
-- **Prose:**
-  > `ZSCORE lb alice`는 dict에서 node를 찾아 `score`를 바로 읽습니다.
-  > `ZRANGE lb 0 9`나 `ZRANK`는 skiplist를 따라갑니다.
-  > 같은 원소를 두 구조가 가리키지만 member 문자열은 node 하나에만 있습니다(dict는 node 포인터를 저장).
-- **Token:** `call` · `ZSCORE lb alice`
-- **Facts:**
-  - `ZSCORE`: `dictFind` + `node->score`
-  - The dict stores node pointers (`no_value`)
-- **Event log:** `main → zset · Encoding · dictFind(alice) → score 100 · O(1)`
-- **Sources:** [t_zset.c#L20-L26](https://github.com/redis/redis/blob/8.10.3/src/t_zset.c#L20-L26), [t_zset.c#L53-L64](https://github.com/redis/redis/blob/8.10.3/src/t_zset.c#L53-L64), [t_zset.c#L1545-L1550](https://github.com/redis/redis/blob/8.10.3/src/t_zset.c#L1545-L1550)
-
-#### S13 · `mutate` dict · bucket 수만큼 차면 두 배로
-- **Subtitle:** keyspace dict에 키 5번째가 들어올 때 `ht_table[1]`을 8칸으로 만들고 `rehashidx = 0`.
-- **Prose:**
-  > keyspace도 hashtable(dict)입니다. 8.x에서는 `kvstore`가 dict 배열을 관리합니다(standalone 1개, cluster 16384개).
-  > 원소 수가 bucket 수와 같아지면(load factor 1) 다음 2의 거듭제곱 크기로 `ht_table[1]`을 만듭니다.
-  > 한 번에 옮기지 않습니다. `rehashidx`를 0으로 두고 조금씩 옮깁니다. 수백만 키를 한 번에 옮기면 그동안 서버가 멈추기 때문입니다.
-- **Facts:**
-  - Initial size: 4 buckets
-  - Expand at `used >= size` (1:1); with a fork child at `used >= 4 × size` (`dict_force_resize_ratio = 4`)
-  - Shrink at ≤ 1/8 fill (`HASHTABLE_MIN_FILL 8`); never below 4 buckets
-- **Event log:** `main → dict · Dict · _dictExpandIfNeeded 4 → 8 buckets · —`
-- **State (dict: db0):**
-  - before: `ht[0] = 4 buckets, used 4`, `ht[1] = —`, `rehashidx = -1`
-  - after: `ht[0] = 4 buckets, used 4`, `ht[1] = 8 buckets, used 0`, `rehashidx = 0`
-- **Sources:** [dict.c#L1658-L1673](https://github.com/redis/redis/blob/8.10.3/src/dict.c#L1658-L1673), [dict.h#L162-L178](https://github.com/redis/redis/blob/8.10.3/src/dict.h#L162-L178), [dict.h#L212-L213](https://github.com/redis/redis/blob/8.10.3/src/dict.h#L212-L213), [dict.c#L46](https://github.com/redis/redis/blob/8.10.3/src/dict.c#L46), [dict.h#L53](https://github.com/redis/redis/blob/8.10.3/src/dict.h#L53), [dict.c#L1692-L1706](https://github.com/redis/redis/blob/8.10.3/src/dict.c#L1692-L1706), [server.c#L3094-L3102](https://github.com/redis/redis/blob/8.10.3/src/server.c#L3094-L3102)
-
-#### S14 · `mutate` dict · 명령 하나마다 bucket 하나씩 옮긴다
-- **Subtitle:** rehash 중에는 조회는 두 table을 보고, 삽입은 새 table에만 한다.
-- **Prose:**
-  > rehash 중 dict를 건드리는 연산마다 `_dictRehashStep()`이 `dictRehash(d, 1)`로 bucket 하나를 옮깁니다. 빈 bucket은 최대 `n × 10`개까지만 건너뜁니다.
-  > 조회는 `ht[0]`(아직 안 옮긴 부분)과 `ht[1]`을 모두 봅니다. 새 키는 `ht[1]`에만 넣습니다.
-  > 그래서 `ht[0]`은 줄기만 하고, 끝나면 `ht[1]`이 `ht[0]`이 됩니다.
-- **Facts:**
-  - Per operation: `dictRehash(d, 1)`
-  - Empty-bucket cap: `empty_visits = n * 10`
-  - Lookup skips `ht[0]` buckets below `rehashidx`
-- **Event log:** `main → dict · Dict · dictRehash(d,1) bucket 0 → ht[1] · —`
-- **State (dict: db0):**
-  - before: `rehashidx = 0`, `ht[0].used = 4`, `ht[1].used = 1`
-  - after: `rehashidx = 1`, `ht[0].used = 3`, `ht[1].used = 2`
-- **Sources:** [dict.c#L407](https://github.com/redis/redis/blob/8.10.3/src/dict.c#L407), [dict.c#L471-L473](https://github.com/redis/redis/blob/8.10.3/src/dict.c#L471-L473), [dict.c#L550-L552](https://github.com/redis/redis/blob/8.10.3/src/dict.c#L550-L552), [dict.c#L786-L789](https://github.com/redis/redis/blob/8.10.3/src/dict.c#L786-L789), [dict.c#L1720-L1733](https://github.com/redis/redis/blob/8.10.3/src/dict.c#L1720-L1733)
-
-#### S15 · `mutate` dict · 한가할 때는 serverCron이 1 ms씩 옮긴다
-- **Subtitle:** `activerehashing yes`면 매 cron tick마다 최대 1000 µs 동안 100 bucket씩 옮긴다.
-- **Prose:**
-  > 요청이 없으면 step 방식 rehash는 끝나지 않습니다. 그래서 `databasesCron`이 `kvstoreIncrementallyRehash()`로 tick마다 최대 1 ms 동안 rehash합니다.
-  > 기본 `hz 10`이면 100 ms마다 1 ms입니다.
-  > fork한 자식(RDB, AOF rewrite)이 있으면 active rehash를 건너뛰고 resize도 피합니다. 페이지를 덜 건드려야 copy-on-write 복사가 줄기 때문입니다(lesson 4).
-- **Facts:**
-  - `activerehashing`: yes
-  - Budget: `INCREMENTAL_REHASHING_THRESHOLD_US` = 1000 µs per tick, in batches of `dictRehash(d,100)`
-  - Skipped while a child process is active
-- **Event log:** `main → dict · Dict · dictRehashMicroseconds(1000) done · 0.2 ms (E.G.)`
-- **State (dict: db0):**
-  - before: `rehashidx = 1`, `ht[0] = 4 buckets`, `ht[1] = 8 buckets`
-  - after: `rehashidx = -1`, `ht[0] = 8 buckets, used 5`, `ht[1] = —`
-- **Sources:** [redis.conf#L2414](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2414), [redis.conf#L2432](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2432), [server.h#L147](https://github.com/redis/redis/blob/8.10.3/src/server.h#L147), [server.c#L1328-L1362](https://github.com/redis/redis/blob/8.10.3/src/server.c#L1328-L1362), [kvstore.c#L674-L692](https://github.com/redis/redis/blob/8.10.3/src/kvstore.c#L674-L692), [dict.c#L449-L460](https://github.com/redis/redis/blob/8.10.3/src/dict.c#L449-L460), [server.c#L819-L833](https://github.com/redis/redis/blob/8.10.3/src/server.c#L819-L833)
+S1 → S2 → S3: client → main → mem (listpack) → mem (hashtable).
 
 ### Decoder records
 
-**D2.1 listpack of `HSET user:1 name redis age 7` (27 B).** Layers: header · entry 1 · entry 2 · entry 3 · entry 4 · end. Computed from the encoding rules in `listpack.c`, not dumped from a live server.
-
-| Offset | Bytes (hex) | Field | Value | Meaning |
-|---|---|---|---|---|
-| 0–3 | `1B 00 00 00` | total-bytes | 27 | uint32 LE, whole listpack |
-| 4–5 | `04 00` | num-elements | 4 | uint16 LE (65535 = unknown, must scan) |
-| 6 | `84` | encoding | `10`·000100 | 6-bit string, length 4 |
-| 7–10 | `6E 61 6D 65` | data | `name` | field 1 |
-| 11 | `05` | backlen | 5 | length of encoding + data |
-| 12 | `85` | encoding | `10`·000101 | 6-bit string, length 5 |
-| 13–17 | `72 65 64 69 73` | data | `redis` | value 1 |
-| 18 | `06` | backlen | 6 | |
-| 19 | `83` | encoding | `10`·000011 | 6-bit string, length 3 |
-| 20–22 | `61 67 65` | data | `age` | field 2 |
-| 23 | `04` | backlen | 4 | |
-| 24 | `07` | encoding+data | `0`·0000111 | 7-bit uint = 7 (string "7" stored as integer) |
-| 25 | `01` | backlen | 1 | |
-| 26 | `FF` | end | | `LP_EOF` |
-
-Other first-byte patterns for the legend: `110xxxxx` 13-bit int, `1110xxxx` 12-bit string, `F0` 32-bit string, `F1`/`F2`/`F3`/`F4` 16/24/32/64-bit int. Sources: [listpack.c#L27-L76](https://github.com/redis/redis/blob/8.10.3/src/listpack.c#L27-L76), [listpack.c#L249-L373](https://github.com/redis/redis/blob/8.10.3/src/listpack.c#L249-L373), [listpack.c#L443-L460](https://github.com/redis/redis/blob/8.10.3/src/listpack.c#L443-L460).
-
-**D2.2 intset `tags` before and after `SADD tags 70000`.** Layers: header · contents.
-
-| State | Bytes (hex) | Fields |
-|---|---|---|
-| before (14 B) | `02 00 00 00` `03 00 00 00` `01 00` `02 00` `03 00` | encoding = 2 (INT16), length = 3, contents = 1, 2, 3 |
-| after (24 B) | `04 00 00 00` `04 00 00 00` `01 00 00 00` `02 00 00 00` `03 00 00 00` `70 11 01 00` | encoding = 4 (INT32), length = 4, contents = 1, 2, 3, 70000 (0x00011170) |
-
-Sources: [intset.h#L35-L39](https://github.com/redis/redis/blob/8.10.3/src/intset.h#L35-L39), [intset.c#L41-L43](https://github.com/redis/redis/blob/8.10.3/src/intset.c#L41-L43), [intset.c#L60-L75](https://github.com/redis/redis/blob/8.10.3/src/intset.c#L60-L75), [intset.c#L165-L192](https://github.com/redis/redis/blob/8.10.3/src/intset.c#L165-L192). Computed, not dumped from a live server.
+None. The listpack and intset byte layouts were cut by the must-know rule. `OBJECT ENCODING` and `MEMORY USAGE` are what engineers use, and S1 names them.
 
 ### Self-check
 
-1. **Q:** hash가 listpack에서 hashtable로 바뀌는 두 조건과 기본값은? **A:** field 수 > `hash-max-listpack-entries`(512), 또는 field/value 길이 > `hash-max-listpack-value`(64바이트). 한 번 바뀌면 돌아가지 않는다.
-2. **Q:** listpack entry의 backlen은 왜 있나? **A:** 각 entry 끝에 자기 길이를 적어 두어 뒤에서 앞으로 순회할 수 있게 한다(예: `LRANGE` 음수 index, `RPOP`).
-3. **Q:** `SADD s 1 2 3` 후 `SADD s 70000`을 하면 메모리에서 무슨 일이 일어나나? **A:** intset이 INT16에서 INT32로 upgrade되어 모든 원소를 4바이트로 다시 쓴다. 정렬 상태는 유지, downgrade는 없다.
-4. **Q:** sorted set이 skiplist와 dict를 함께 쓰는 이유는? **A:** dict로 member → score를 O(1)에 찾고(`ZSCORE`), skiplist로 score 순 범위와 rank를 O(log N)에 찾기 위해서.
-5. **Q:** dict incremental rehash 중 `GET`은 어느 table을 보나? 새 키는 어디에 들어가나? **A:** `ht[0]`(rehashidx 이후)과 `ht[1]`을 모두 본다. 새 키는 `ht[1]`에만 넣는다.
-6. **Q:** BGSAVE 중에 dict resize를 피하는 이유는? **A:** fork 후 부모가 메모리 페이지를 건드릴 때마다 copy-on-write로 페이지가 복사된다. resize는 많은 페이지를 건드리므로 load factor 4 이상일 때만 허용한다.
+1. **Q:** hash가 listpack에서 hashtable로 바뀌는 조건은? **A:** field 수 > 512, 또는 field/value 하나 > 64바이트. 되돌아가지 않는다.
+2. **Q:** sorted set이 skiplist와 dict를 함께 쓰는 이유는? **A:** dict로 member → score를 O(1)에, skiplist로 score 순 범위와 rank를 O(log N)에 찾기 위해서.
+3. **Q:** keyspace가 커질 때 서버가 멈추지 않는 이유는? **A:** incremental rehash. 두 table을 두고 명령마다, 그리고 cron이 1 ms씩 bucket을 옮긴다.
 
 ---
 
-## Lesson 3. `expire-evict`: 키는 언제 사라지는가, 만료와 eviction
+## Lesson 3. `expire`: TTL이 지난 키는 언제 사라지나
 
-**Goal.** Show the two ways an expired key disappears (on access, and by the sampling cycle), then what happens when memory hits `maxmemory`, and close with the cache stampede that a hot key's expiry causes.
+**Goal.** See that an expired key leaves memory in two ways (on access, and by a sampling job), and that only the master deletes it.
 
-**Interview questions it answers**
-- TTL이 지난 키는 바로 지워지나? 메모리에 남아 있을 수 있나?
-- active expire cycle은 어떻게 동작하나? (예전 "20개 샘플, 25% 넘으면 반복" 설명은 지금 코드와 다르다)
-- replica에서 만료된 키를 읽으면? replica는 직접 지우나?
-- `maxmemory`에 닿으면 무슨 일이? 기본 정책은? LRU가 "근사"인 이유와 LFU counter 구조는?
-- cache stampede는 왜 생기고, Redis로 어떻게 막나?
+**Critical path.** `SET EX` → absolute deadline stored → deleted on access or by the cron sampler → `DEL` to replicas and AOF.
 
-**Nodes**
+**Interview and incident questions**
+- TTL이 지난 키는 바로 지워지나? 메모리에 남을 수 있나?
+- replica에서 만료된 키를 읽으면?
+- `SET`으로 값을 바꿨더니 TTL이 사라진 이유는?
+- 많은 키가 같은 순간에 만료되면 무슨 일이?
 
-| id | label | sublabel | kind | Illustration idea | First appears |
-|---|---|---|---|---|---|
-| `app1` | order-api #1 | Spring app | `app` | Small server box with a leaf badge | S1 |
-| `app2` | order-api #2…#N | Spring app ×N | `app` | Stack of the same box | S14 |
-| `main` | Redis main | `expire.c` / `evict.c` | `framework` | Gear with an hourglass | S1 |
-| `keys` | db0 keys | `kvstore` | `storage` | Drawer cabinet | S2 |
-| `expires` | db0 expires | `kvstore` | `storage` | Second cabinet with clock tags | S2 |
-| `pool` | eviction pool | 16 slots | `framework` | Tray with 16 numbered slots | S11 |
-| `replica` | Replica | read-only | `framework` | Mirror-image gear | S5 |
-| `db` | MySQL | `orders` | `storage` | Database cylinder | S14 |
+**Nodes:** `client` (app), `main`, `mem` (db0), `peer1` (replica).
 
-**Layer selector:** `Command` · `Expire` · `Evict` · `Cache pattern`.
+**State panels**
 
-**Example clock.** The command runs at `1793750400000` ms = 2026-11-04T00:00:00Z (E.G.).
+| Node | Panel | Columns | Initial rows |
+|---|---|---|---|
+| `mem` | db0 | key · value · expires at | `cart:1` · … · 1793750401000 (E.G.); `cart:2` · … · 1793750401000 (E.G.) |
+| `main` | expire cycle | item · value | `stale %` = 0; `repeat` = no |
+
+**Layer selector:** `Command` · `Expire` · `Replication`.
+
+**Example clock:** `1793750400000` ms = 2026-11-04T00:00:00Z (E.G.).
 
 ### Steps
 
-#### S1 · `move` app1 → main · `SET session:42 v EX 60`
-- **Subtitle:** 상대 TTL을 받지만 저장은 절대 시각(Unix ms)으로 한다.
+#### S1 · `move` client → main · `SET session:42 v EX 60`
+- **Subtitle:** 60초 TTL로 쓴다.
 - **Prose:**
-  > `EXPIRE`, `PEXPIRE`, `EXPIREAT`, `SET … EX`는 모두 같은 길을 타고, 만료 시각을 Unix epoch 밀리초 절대값으로 바꿉니다.
-  > 그래서 Redis가 꺼져 있는 동안에도 시간은 흐르고, 서버 시계를 앞으로 돌리면 키가 즉시 만료될 수 있습니다.
-  > 전파할 때도 상대값이 아니라 `SET … PXAT <ms>` / `PEXPIREAT`로 보냅니다. replica와 AOF가 같은 시각을 쓰게 하려는 것입니다.
+  > `EX`, `PX`, `EXPIRE`는 모두 "지금 + TTL"을 절대 시각(Unix ms)으로 바꿔 저장합니다.
 - **Token:** `request` · `SET session:42 v EX 60`
 - **Facts:**
-  - Stored as: absolute Unix time in ms (`when = now + 60*1000`)
-  - Propagated as: `SET session:42 v PXAT 1793750460000` (E.G.)
-  - Expire accuracy since 2.6: 0–1 ms
-- **Event log:** `app1 → main · RESP2 · SET session:42 v EX 60 · 53 B`
-- **Sources:** [expire.c#L726-L754](https://github.com/redis/redis/blob/8.10.3/src/expire.c#L726-L754), [t_string.c#L193-L205](https://github.com/redis/redis/blob/8.10.3/src/t_string.c#L193-L205), [expire.c#L824-L828](https://github.com/redis/redis/blob/8.10.3/src/expire.c#L824-L828), [expire.md#L238-L254](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/expire.md#L238-L254)
+  - Stored as an absolute Unix time in ms
+  - `TTL` returns seconds left, `-1` for no TTL, `-2` for a missing key
+- **Event log:** `client → main · RESP2 · SET session:42 v EX 60 · 53 B`
+- **Sources:** [expire.c#L726-L754](https://github.com/redis/redis/blob/8.10.3/src/expire.c#L726-L754), [ttl.md#L58-L63](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/ttl.md#L58-L63)
 
-#### S2 · `mutate` expires · 만료 시각은 키 옆 metadata로 붙는다
-- **Subtitle:** `db->expires`에 같은 키 객체를 등록하고, 시각은 객체 앞 8바이트 metadata에 둔다(8.x).
+#### S2 · `mutate` mem · 만료 시각을 절대값으로 저장
+- **Subtitle:** 서버 시계 기준 절대 시각. 값을 덮어쓰는 `SET`은 TTL을 지운다.
 - **Prose:**
-  > 각 DB에는 `keys`와 `expires` 두 `kvstore`가 있습니다. TTL이 있는 키만 `expires`에 들어갑니다.
-  > 8.x에서는 만료 시각을 별도 값으로 두지 않고, `kvobj` 앞의 metadata class 0(8바이트)에 둡니다. `expires`는 같은 객체를 가리킵니다.
-  > hash field TTL(`HEXPIRE`, 7.4+)은 따로 `subexpires`에서 관리합니다.
+  > 만료 시각은 서버의 wall clock 기준 절대값입니다. Redis가 꺼져 있어도 시간은 흐르고, 시계를 앞으로 돌리면 키가 바로 만료됩니다.
+  > 흔한 버그: `KEEPTTL` 없이 `SET`하면 TTL이 사라집니다. `INCR`, `HSET` 같은 수정은 TTL을 유지합니다.
 - **Facts:**
-  - Per-DB: `kvstore *keys`, `kvstore *expires`, `estore *subexpires`
-  - Expire metadata: class 0, placed before the `kvobj`
-- **Event log:** `main → expires · Expire · kvstoreDictAddRaw(expires, session:42) · 8 B metadata`
-- **State (expires: db0):**
-  - before: `(empty)`
-  - after: `session:42 → 1793750460000 (E.G.)`
-- **Sources:** [server.h#L1226-L1229](https://github.com/redis/redis/blob/8.10.3/src/server.h#L1226-L1229), [object.h#L45-L57](https://github.com/redis/redis/blob/8.10.3/src/object.h#L45-L57), [db.c#L2807-L2808](https://github.com/redis/redis/blob/8.10.3/src/db.c#L2807-L2808), [hexpire.md#L79](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/hexpire.md#L79)
+  - `SET` without `KEEPTTL` discards the TTL; `DEL`, `SET`, `GETSET`, `*STORE` clear it; `INCR`/`LPUSH`/`HSET` keep it
+  - Propagated to replicas and AOF as `SET … PXAT <ms>`, so every copy uses the same deadline
+- **Event log:** `main → mem · Expire · session:42 expires at 1793750460000 (E.G.) · —`
+- **State (mem: db0):**
+  - before: `cart:1` · … · 1793750401000; `cart:2` · … · 1793750401000
+  - after: `cart:1` · … · 1793750401000; `cart:2` · … · 1793750401000; `session:42` · v · 1793750460000
+- **Record:** D3.1 (`wire`)
+- **Sources:** [expire.md#L81-L94](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/expire.md#L81-L94), [expire.md#L242-L254](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/expire.md#L242-L254), [set.md#L140](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/set.md#L140), [t_string.c#L193-L205](https://github.com/redis/redis/blob/8.10.3/src/t_string.c#L193-L205)
 
-#### S3 · `move` app1 → main · `TTL`의 세 가지 답
-- **Subtitle:** 남은 초, `-1`(TTL 없음), `-2`(키 없음).
+#### S3 · `move` client → main · 60초 뒤 `GET session:42`
+- **Subtitle:** 이미 만료된 키를 읽는다.
 - **Prose:**
-  > `TTL`은 남은 초를 돌려줍니다. 키는 있는데 TTL이 없으면 `-1`, 키가 없으면 `-2`입니다(2.8 이전에는 둘 다 `-1`).
-  > TTL은 내용을 지우거나 덮어쓰는 명령(`DEL`, `SET`, `GETSET`, `*STORE`)만 없앱니다. `INCR`, `LPUSH`, `HSET`은 TTL을 그대로 둡니다.
-  > `SET`은 `KEEPTTL` 없이 쓰면 기존 TTL을 버립니다. `PERSIST`는 TTL만 지웁니다.
-- **Token:** `request` · `TTL session:42` → `:57`
+  > 키를 찾을 때마다 Redis는 먼저 만료 시각을 확인합니다.
+- **Token:** `request` · `GET session:42`
 - **Facts:**
-  - `-2`: key does not exist; `-1`: no expire
-  - `SET` without `KEEPTTL` discards the TTL
-  - `RENAME` carries the TTL to the new name
-- **Event log:** `app1 → main · RESP2 · TTL session:42 → :57 (E.G.) · 30 B / 5 B`
-- **Sources:** [ttl.md#L58-L63](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/ttl.md#L58-L63), [expire.md#L81-L94](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/expire.md#L81-L94), [set.md#L140](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/set.md#L140), [set.md#L228](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/set.md#L228)
+  - Every key lookup checks `now > expires at` first
+  - `now` is fixed at the start of a command or script, so a key cannot expire halfway through one
+- **Event log:** `client → main · RESP2 · GET session:42 · 30 B`
+- **Sources:** [db.c#L279-L306](https://github.com/redis/redis/blob/8.10.3/src/db.c#L279-L306), [db.c#L2941-L2951](https://github.com/redis/redis/blob/8.10.3/src/db.c#L2941-L2951), [server.c#L262-L276](https://github.com/redis/redis/blob/8.10.3/src/server.c#L262-L276)
 
-#### S4 · `mutate` keys · 읽을 때 만료를 확인한다 (lazy)
-- **Subtitle:** 60초 뒤 `GET session:42` → `lookupKey` → `expireIfNeeded` → 삭제하고 null.
+#### S4 · `mutate` mem · 읽을 때 지운다 (lazy)
+- **Subtitle:** 만료됐으면 그 자리에서 지우고 null을 돌려준다.
 - **Prose:**
-  > 키를 읽을 때마다 `lookupKey()`가 `expireIfNeeded()`를 부릅니다. `now > when`이면 그 자리에서 지우고 키가 없는 것처럼 답합니다.
-  > `now`는 명령 시작 시점에 찍은 값이라, 명령이나 script 하나 안에서는 시간이 멈춘 것처럼 보입니다.
-  > 이것만으로는 다시 읽히지 않는 키가 영원히 남습니다. 그래서 active cycle(S6)이 있습니다.
+  > 만료된 키는 읽는 순간 지워지고 client는 null을 받습니다(lazy expiration).
+  > 다시 읽히지 않는 키는 이 방식으로는 영원히 남습니다. 그래서 따로 훑는 작업(S6)이 있습니다.
 - **Facts:**
-  - Check: `now > when`, with `now` = per-command time snapshot
-  - Never expire while loading (`server.loading`)
-  - Expired key event: `expired` keyspace notification
-- **Event log:** `main → keys · Expire · expireIfNeeded(session:42) → deleted · —`
-- **State (keys / expires: db0):**
-  - before: `keys: session:42`, `expires: session:42 → 1793750460000`
-  - after: `keys: —`, `expires: —`
-- **Sources:** [db.c#L279-L306](https://github.com/redis/redis/blob/8.10.3/src/db.c#L279-L306), [db.c#L2941-L2951](https://github.com/redis/redis/blob/8.10.3/src/db.c#L2941-L2951), [server.c#L262-L276](https://github.com/redis/redis/blob/8.10.3/src/server.c#L262-L276), [expire.md#L258-L267](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/expire.md#L258-L267)
+  - Docs: "A key is passively expired when a client tries to access it and the key is timed out"
+  - Keyspace event: `expired`
+- **Event log:** `main → mem · Expire · session:42 expired on access → nil · —`
+- **State (mem: db0):**
+  - before: `cart:1` · … · 1793750401000; `cart:2` · … · 1793750401000; `session:42` · v · 1793750460000
+  - after: `cart:1` · … · 1793750401000; `cart:2` · … · 1793750401000
+- **Sources:** [expire.md#L258-L267](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/expire.md#L258-L267), [db.c#L2890-L2892](https://github.com/redis/redis/blob/8.10.3/src/db.c#L2890-L2892)
 
-#### S5 · `move` main → replica · 만료 삭제는 master가 DEL로 보낸다
-- **Subtitle:** replica는 직접 지우지 않고 master의 `DEL`(또는 `UNLINK`)을 기다린다.
+#### S5 · `move` main → peer1 · 지운 사실은 `DEL`로 전파
+- **Subtitle:** replica는 스스로 지우지 않고 master의 `DEL`을 기다린다.
 - **Prose:**
-  > master는 만료로 지운 키를 `DEL`로 AOF와 모든 replica에 전파합니다. `lazyfree-lazy-expire yes`면 `UNLINK`입니다.
-  > replica는 독립적으로 키를 만료시키지 않습니다. 다만 읽기 명령에는 자기 시계로 "없다"고 답합니다.
-  > master에서 온 명령은 만료 검사를 건너뜁니다. 그래서 복제 스트림의 순서가 지켜집니다.
+  > 만료 삭제는 master만 합니다. 지우면 `DEL`(lazyfree를 켜면 `UNLINK`)을 AOF와 replica로 보냅니다.
+  > replica는 자기 시계로 만료를 판단해 읽기에는 "없다"고 답하지만, 실제로 지우지는 않습니다.
 - **Token:** `data` · `DEL session:42`
 - **Facts:**
-  - `lazyfree-lazy-expire`: no → `DEL`; yes → `UNLINK`
-  - Replica read of an expired key: reported as missing, not deleted
-- **Event log:** `main → replica · Replication · *2 DEL session:42 · 30 B`
-- **Sources:** [db.c#L2876-L2930](https://github.com/redis/redis/blob/8.10.3/src/db.c#L2876-L2930), [db.c#L2962-L2970](https://github.com/redis/redis/blob/8.10.3/src/db.c#L2962-L2970), [db.c#L3049-L3052](https://github.com/redis/redis/blob/8.10.3/src/db.c#L3049-L3052), [config.c#L3411](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3411), [expire.md#L271-L281](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/expire.md#L271-L281), [replication.md#L282-L283](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L282-L283)
+  - Expiry is centralized in the master; replicas wait for its `DEL`
+  - Replica reads of an expired key return nothing
+- **Event log:** `main → peer1 · Replication · DEL session:42 · 30 B`
+- **Sources:** [expire.md#L271-L281](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/expire.md#L271-L281), [replication.md#L282-L283](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L282-L283), [db.c#L2918-L2930](https://github.com/redis/redis/blob/8.10.3/src/db.c#L2918-L2930)
 
-#### S6 · `mutate` expires · slow cycle: CPU 25% 안에서 샘플링
-- **Subtitle:** serverCron(10 Hz)이 `activeExpireCycle(SLOW)`를 부르고, 한 번에 최대 25 ms를 쓴다.
+#### S6 · `mutate` mem · 읽히지 않는 키는 cron이 샘플링해 지운다 (active)
+- **Subtitle:** 초당 10번, TTL 있는 키를 20개씩 훑고, 만료 비율이 높으면 반복한다.
 - **Prose:**
-  > master는 `databasesCron`에서 `activeExpireCycle(ACTIVE_EXPIRE_CYCLE_SLOW)`를 부릅니다.
-  > 시간 한도는 `25 × 1,000,000 / hz / 100` µs, 기본 hz 10이면 25 ms입니다.
-  > `expires`를 cursor로 훑으며 한 번에 20개씩 보고, 만료된 비율이 10%를 넘으면 같은 DB를 다시 봅니다.
-  > 예전 글의 "무작위 20개, 25% 넘으면 반복"과 다릅니다. 지금의 25%는 CPU 시간 한도입니다.
+  > master의 `serverCron`이 TTL 있는 키를 20개씩 훑어 만료된 것을 지웁니다. 만료된 비율이 10%를 넘으면 반복합니다.
+  > 한 번에 CPU 시간의 25%까지만 씁니다. 그래서 만료된 키가 잠시 메모리에 남을 수 있습니다.
 - **Facts:**
-  - `ACTIVE_EXPIRE_CYCLE_KEYS_PER_LOOP`: 20
-  - `ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC`: 25 (% of CPU) → 25 ms per call at hz 10
-  - `ACTIVE_EXPIRE_CYCLE_ACCEPTABLE_STALE`: 10 (%)
-- **Event log:** `main → expires · Expire · activeExpireCycle SLOW: sampled 20, expired 8 · 0.4 ms (E.G.)`
-- **State (expires: one loop, E.G.):**
-  - before: `cursor = 0`, `sampled = 0`, `expired = 0`
-  - after: `cursor = 0x3a (E.G.)`, `sampled = 20`, `expired = 8 (40% > 10% → repeat)`
-- **Sources:** [expire.c#L56-L100](https://github.com/redis/redis/blob/8.10.3/src/expire.c#L56-L100), [expire.c#L347-L352](https://github.com/redis/redis/blob/8.10.3/src/expire.c#L347-L352), [expire.c#L433-L447](https://github.com/redis/redis/blob/8.10.3/src/expire.c#L433-L447), [server.c#L1312-L1318](https://github.com/redis/redis/blob/8.10.3/src/server.c#L1312-L1318)
+  - Runs `hz` times per second (default 10), 20 keys per loop
+  - Repeats while more than 10% of sampled keys were expired; time cap 25% of CPU
+- **Event log:** `main → mem · Expire · active cycle: sampled 20, expired 2 · 0.3 ms (E.G.)`
+- **State (mem: db0):**
+  - before: `cart:1` · … · 1793750401000; `cart:2` · … · 1793750401000
+  - after: (empty)
+- **Sources:** [expire.c#L56-L100](https://github.com/redis/redis/blob/8.10.3/src/expire.c#L56-L100), [expire.c#L433-L447](https://github.com/redis/redis/blob/8.10.3/src/expire.c#L433-L447), [server.c#L1312-L1318](https://github.com/redis/redis/blob/8.10.3/src/server.c#L1312-L1318), [server.h#L119](https://github.com/redis/redis/blob/8.10.3/src/server.h#L119)
 
-#### S7 · `mutate` expires · fast cycle: 잠들기 전 1 ms
-- **Subtitle:** `beforeSleep`이 짧은 cycle을 돌린다. 지난 slow cycle이 시간 초과였거나 stale이 많을 때만.
+#### S7 · `mutate` main · 같은 순간에 많이 만료되면 지연 (side path)
+- **Subtitle:** 같은 시각으로 `EXPIREAT`한 키가 많으면 active cycle이 반복되며 지연이 생긴다.
 - **Prose:**
-  > event loop가 잠들기 전마다 `activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST)`를 부릅니다. 한도는 1000 µs입니다.
-  > 지난 slow cycle이 시간 한도로 끝나지 않았고 stale 추정치가 10% 미만이면 바로 돌아갑니다.
-  > 직전 fast cycle 시작 후 2000 µs 안에는 다시 돌지 않습니다.
+  > 만료 비율이 높으면 cycle이 계속 반복되므로, 같은 순간에 많은 키가 만료되면 서버가 잠시 막힐 수 있습니다.
+  > docs는 같은 Unix 시각으로 `EXPIREAT`을 많이 거는 경우를 예로 듭니다.
 - **Facts:**
-  - `ACTIVE_EXPIRE_CYCLE_FAST_DURATION`: 1000 µs
-  - Gate: last slow cycle timed out, or stale ≥ acceptable %
-  - Min gap: 2 × fast duration
-- **Event log:** `main → expires · Expire · activeExpireCycle FAST · ≤ 1000 µs`
-- **State (main: expire stats):**
-  - before: `stat_expired_stale_perc = 0.12 (E.G.)`, `last_fast_cycle = t−5 ms`
-  - after: `expired_keys += 31 (E.G.)`, `last_fast_cycle = t`
-- **Sources:** [expire.c#L323-L327](https://github.com/redis/redis/blob/8.10.3/src/expire.c#L323-L327), [server.c#L2006-L2009](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2006-L2009), [expire.c#L96-L100](https://github.com/redis/redis/blob/8.10.3/src/expire.c#L96-L100)
+  - Docs: "many keys expiring at the same moment can be a source of latency"
+  - Big expired values are freed on the main thread unless `lazyfree-lazy-expire yes` (default `no`)
+- **Event log:** `main → main · Expire · active cycle repeating, 100k keys expired at 00:00:01 (E.G.) · 25 ms`
+- **State (main: expire cycle):**
+  - before: `stale %` = 0; `repeat` = no
+  - after: `stale %` = 80 (E.G.); `repeat` = yes, until the time cap
+- **Sources:** [latency.md#L571-L575](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/optimization/latency.md#L571-L575), [config.c#L3411](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3411)
 
-#### S8 · `mutate` main · `active-expire-effort`로 세게 돌린다
-- **Subtitle:** 1(기본)~10. 올리면 샘플 수, 시간 한도, CPU 비율이 늘고 허용 stale 비율이 준다.
-- **Prose:**
-  > `active-expire-effort`를 올리면 네 값이 같이 바뀝니다. 만료 키가 메모리에 오래 남는 대신 CPU를 쓰는 trade-off입니다.
-  > 최대 10이면 한 번에 65개 샘플, fast cycle 3250 µs, slow cycle CPU 43%, 허용 stale 1%입니다.
-- **Facts:**
-  - `active-expire-effort`: default 1, range 1–10
-  - keys per loop `20 + 5×(e−1)`: 20 → 65
-  - slow CPU % `25 + 2×(e−1)`: 25 → 43; acceptable stale `10 − (e−1)`: 10 → 1
-- **Event log:** `main → main · Expire · CONFIG SET active-expire-effort 10 · —`
-- **State (main: expire parameters):**
-  - before (effort 1): `keys/loop = 20`, `fast = 1000 µs`, `slow CPU = 25%`, `stale = 10%`
-  - after (effort 10): `keys/loop = 65`, `fast = 3250 µs`, `slow CPU = 43%`, `stale = 1%`
-- **Sources:** [expire.c#L292-L300](https://github.com/redis/redis/blob/8.10.3/src/expire.c#L292-L300), [config.c#L3536](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3536), [redis.conf#L1314-L1323](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1314-L1323)
+### Replay
 
-#### S9 · `mutate` main · maxmemory에 닿았다: 기본은 쓰기 거절
-- **Subtitle:** 기본 `maxmemory-policy noeviction` — `DENYOOM` 명령은 `-OOM`, 읽기는 계속 된다.
+S1 → S3 → S5: client → main → mem (deadline, then deleted) → peer1 (`DEL`).
+
+### Decoder records
+
+**D3.1 · step S2 · `wire` · how `SET session:42 v EX 60` reaches replicas and the AOF.**
+
+| Bytes (text) | Field | Value |
+|---|---|---|
+| `*5\r\n` | array header | 5 args |
+| `$3\r\nSET\r\n` `$10\r\nsession:42\r\n` `$1\r\nv\r\n` | command, key, value | |
+| `$4\r\nPXAT\r\n` | expire option | `EX` rewritten to `PXAT` |
+| `$13\r\n1793750460000\r\n` | deadline | now + 60000 ms (E.G.) |
+
+Sources: [t_string.c#L193-L205](https://github.com/redis/redis/blob/8.10.3/src/t_string.c#L193-L205), [expire.c#L824-L828](https://github.com/redis/redis/blob/8.10.3/src/expire.c#L824-L828).
+
+### Self-check
+
+1. **Q:** 만료된 키가 지워지는 두 경로는? **A:** 읽을 때 확인해 지우는 lazy, cron이 TTL 있는 키를 샘플링해 지우는 active.
+2. **Q:** replica에서 만료된 키를 읽으면? 누가 지우나? **A:** 없다고 답한다. 삭제는 master가 보내는 `DEL`로 한다.
+3. **Q:** `SET key newvalue` 후 TTL이 `-1`이 된 이유는? **A:** `SET`은 `KEEPTTL` 없이 쓰면 기존 TTL을 버린다.
+
+---
+
+## Lesson 4. `evict`: 메모리가 꽉 차면 무엇을 버리나
+
+**Goal.** See what happens to a write when memory hits `maxmemory`: rejected under the default policy, or a sampled victim is deleted under an eviction policy.
+
+**Critical path.** write → over `maxmemory` → policy picks a sampled victim → delete → `DEL` to replicas.
+
+**Interview and incident questions**
+- `maxmemory`에 닿으면? 기본 정책은?
+- 캐시 용도라면 어떤 정책을? `volatile-*`를 골랐는데 `-OOM`이 나는 이유는?
+- Redis LRU가 "근사"인 이유는?
+
+**Overview (one line).** 8.6부터 쓰기 시각 기준 LRM 정책 2개가 추가되었다(eviction docs).
+
+**Nodes:** `client` (app), `main`, `mem` (db0), `peer1` (replica).
+
+**State panels**
+
+| Node | Panel | Columns | Initial rows |
+|---|---|---|---|
+| `main` | memory | item · value | `used` = 0.99 GB (E.G.); `maxmemory` = 1gb (E.G.); `policy` = noeviction; `결과` = — |
+| `mem` | db0 (idle time) | key · idle | `product:311` · 9000 s; `cart:12` · 4200 s; `user:7` · 3 s (E.G.) |
+
+**Layer selector:** `Command` · `Evict` · `Replication`.
+
+### Steps
+
+#### S1 · `move` client → main · 메모리가 한도에 닿은 상태에서 쓰기
+- **Subtitle:** `SET cart:9 …` — 이 쓰기로 사용량이 `maxmemory`를 넘는다.
 - **Prose:**
-  > `maxmemory`는 기본 0(64비트에서 제한 없음)입니다. 설정하면 `processCommand()`가 명령 전에 `performEvictions()`를 부릅니다.
-  > 기본 정책 `noeviction`은 아무것도 지우지 않고 실패를 돌려줍니다. 그러면 `SET` 같은 `DENYOOM` 명령은 `-OOM` 오류를 받고, `GET`은 그대로 됩니다.
-  > replica 출력 buffer 중 backlog를 넘는 부분과 AOF buffer는 사용량 계산에서 뺍니다. DEL을 밀어 넣다가 buffer가 커지는 되먹임을 막으려는 것입니다.
+  > 쓰기 명령이 오면 실행 전에 메모리를 확인합니다(lesson 1 S5). `maxmemory`가 설정되어 있고 넘었으면 정책에 따라 메모리를 비웁니다.
+- **Token:** `request` · `SET cart:9 …`
 - **Facts:**
-  - `maxmemory`: 0; `maxmemory-policy`: `noeviction`
+  - `maxmemory`: 0 by default = no limit on 64-bit systems
+  - The check runs before every command while `maxmemory` is set
+- **Event log:** `client → main · RESP2 · SET cart:9 … · 2 KB (E.G.)`
+- **Sources:** [config.c#L3589](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3589), [eviction/index.md#L60-L62](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/eviction/index.md#L60-L62), [server.c#L4655-L4671](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4655-L4671)
+
+#### S2 · `mutate` main · 기본 정책 `noeviction`: 쓰기 거절
+- **Subtitle:** 아무것도 지우지 않고 쓰기 명령에 `-OOM`을 돌려준다. 읽기는 계속 된다.
+- **Prose:**
+  > 기본 정책 `noeviction`은 메모리를 비우지 않습니다. 쓰기 명령은 `-OOM` 오류, 읽기는 정상입니다.
+  > 캐시로 쓰면서 정책을 안 바꾸면, 메모리가 찬 순간 쓰기 장애가 됩니다.
+  > replica 출력 buffer(backlog 초과분)와 AOF buffer는 사용량 계산에서 뺍니다.
+- **Facts:**
+  - `maxmemory-policy`: `noeviction`
   - Error: `-OOM command not allowed when used memory > 'maxmemory'.`
-  - Not counted: replica output buffers above `repl-backlog-size`, AOF buffer
-- **Event log:** `app1 → main · RESP2 · SET cart:9 … → -OOM · 1.02 GB used / 1 GB max (E.G.)`
+- **Event log:** `main → client · RESP2 · -OOM command not allowed … · 58 B`
 - **State (main: memory):**
-  - before: `used = 0.99 GB (E.G.)`, `maxmemory = 1gb (E.G.)`, `policy = noeviction`
-  - after: `used = 1.02 GB`, `state = EVICT_FAIL`, `writes = -OOM`, `reads = OK`
-- **Sources:** [config.c#L3589](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3589), [config.c#L3491](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3491), [server.c#L4655-L4671](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4655-L4671), [server.c#L2249-L2250](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2249-L2250), [evict.c#L549-L551](https://github.com/redis/redis/blob/8.10.3/src/evict.c#L549-L551), [evict.c#L310-L358](https://github.com/redis/redis/blob/8.10.3/src/evict.c#L310-L358), [eviction/index.md#L60-L76](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/eviction/index.md#L60-L76)
+  - before: `used` = 0.99 GB; `maxmemory` = 1gb; `policy` = noeviction; `결과` = —
+  - after: `used` = 1.00 GB; `maxmemory` = 1gb; `policy` = noeviction; `결과` = 쓰기 `-OOM`, 읽기 OK
+- **Record:** D4.1 (`wire`)
+- **Sources:** [config.c#L3491](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3491), [server.c#L2249-L2250](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2249-L2250), [evict.c#L549-L551](https://github.com/redis/redis/blob/8.10.3/src/evict.c#L549-L551), [evict.c#L310-L358](https://github.com/redis/redis/blob/8.10.3/src/evict.c#L310-L358)
 
-#### S10 · `mutate` main · 정책은 10가지 (8.6부터 LRM 추가)
-- **Subtitle:** `allkeys-*`는 모든 키, `volatile-*`는 TTL 있는 키만 후보. 기준은 LRU, LFU, LRM, random, TTL.
+#### S3 · `mutate` main · 캐시라면 eviction 정책을 고른다
+- **Subtitle:** 범위(`allkeys` / `volatile`) × 기준(LRU, LFU, random, TTL).
 - **Prose:**
-  > 정책 이름은 범위(`allkeys`/`volatile`)와 기준의 조합입니다. 8.6부터 쓰기만 시각을 갱신하는 LRM(Least Recently Modified)이 추가되어 10개입니다.
-  > `volatile-*` 정책에서 TTL 있는 키가 하나도 없으면 `noeviction`처럼 동작합니다.
-  > 캐시로만 쓰면 보통 `allkeys-lru`나 `allkeys-lfu`를 고릅니다.
+  > `allkeys-*`는 모든 키, `volatile-*`는 TTL 있는 키만 후보입니다. TTL 있는 키가 하나도 없으면 `volatile-*`는 `noeviction`처럼 `-OOM`을 냅니다.
+  > 캐시 전용이면 보통 `allkeys-lru`나 `allkeys-lfu`입니다.
 - **Facts:**
-  - Policies: `volatile-lru`, `allkeys-lru`, `volatile-lfu`, `allkeys-lfu`, `volatile-lrm`, `allkeys-lrm`, `volatile-random`, `allkeys-random`, `volatile-ttl`, `noeviction`
-  - LRM: since 8.6
-  - `volatile-*` with no TTL keys behaves like `noeviction`
-- **Event log:** `app1 → main · RESP2 · CONFIG SET maxmemory-policy allkeys-lru · —`
-- **State (main: policy):**
-  - before: `noeviction`
-  - after: `allkeys-lru`
-- **Sources:** [config.c#L39-L51](https://github.com/redis/redis/blob/8.10.3/src/config.c#L39-L51), [redis.conf#L1233-L1266](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1233-L1266), [eviction/index.md#L104-L118](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/eviction/index.md#L104-L118), [eviction/index.md#L305](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/eviction/index.md#L305)
+  - Policies: `noeviction`, `allkeys-lru`, `volatile-lru`, `allkeys-lfu`, `volatile-lfu`, `allkeys-random`, `volatile-random`, `volatile-ttl`
+  - Docs: `volatile-*` "behave like `noeviction` if no keys have an associated expiration"
+- **Event log:** `client → main · RESP2 · CONFIG SET maxmemory-policy allkeys-lru · —`
+- **State (main: memory):**
+  - before: `used` = 1.00 GB; `maxmemory` = 1gb; `policy` = noeviction; `결과` = 쓰기 `-OOM`, 읽기 OK
+  - after: `used` = 1.00 GB; `maxmemory` = 1gb; `policy` = allkeys-lru; `결과` = —
+- **Sources:** [redis.conf#L1233-L1266](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1233-L1266), [eviction/index.md#L104-L118](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/eviction/index.md#L104-L118)
 
-#### S11 · `mutate` pool · 근사 LRU: 5개 샘플, 16칸 pool
-- **Subtitle:** 전체를 정렬하지 않는다. 키 몇 개를 뽑아 pool에 넣고, 가장 오래 안 쓴 키를 지운다.
+#### S4 · `move` client → main · 같은 쓰기를 다시
+- **Subtitle:** 이번에는 실행 전에 eviction이 돈다.
 - **Prose:**
-  > 정확한 LRU는 모든 키를 순서대로 엮어야 해서 메모리가 듭니다. Redis는 DB마다 `maxmemory-samples`(기본 5)개를 뽑습니다.
-  > 뽑은 키를 idle 시간 순으로 16칸 eviction pool에 넣고, 가장 idle이 긴 키부터 지웁니다. pool은 호출 사이에도 유지되어 좋은 후보가 쌓입니다.
-  > 한 번에 메모리를 다 못 비우면 timer로 이어서 지웁니다. 시간 한도는 `maxmemory-eviction-tenacity`(기본 10 → 500 µs)가 정합니다.
+  > 같은 `SET`이 다시 옵니다. `processCommand()`가 명령 실행 전에 `performEvictions()`를 불러, 한도 아래로 내려갈 때까지 키를 지웁니다.
+- **Token:** `request` · `SET cart:9 …`
 - **Facts:**
-  - `maxmemory-samples`: 5 (max 64; 10 is "very close" to true LRU)
-  - `EVPOOL_SIZE`: 16
-  - `maxmemory-eviction-tenacity`: 10 → 500 µs per call (`50 µs × tenacity` up to 10)
-- **Event log:** `main → pool · Evict · evictionPoolPopulate 5 samples → evict product:311 · 2.1 KB freed (E.G.)`
-- **State (pool, E.G.):**
-  - before: `[]`
-  - after: `[product:311 idle 9000 s, cart:12 idle 4200 s, user:7 idle 300 s, …]` → `product:311` evicted
-- **Sources:** [evict.c#L36](https://github.com/redis/redis/blob/8.10.3/src/evict.c#L36), [evict.c#L93-L96](https://github.com/redis/redis/blob/8.10.3/src/evict.c#L93-L96), [evict.c#L134](https://github.com/redis/redis/blob/8.10.3/src/evict.c#L134), [evict.c#L491-L521](https://github.com/redis/redis/blob/8.10.3/src/evict.c#L491-L521), [config.c#L3522-L3523](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3522-L3523), [redis.conf#L1270-L1278](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1270-L1278), [eviction/index.md#L205-L207](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/eviction/index.md#L205-L207)
+  - Eviction runs synchronously before the command, on the main thread
+  - If one pass cannot free enough, it continues in later event loop iterations
+- **Event log:** `client → main · RESP2 · SET cart:9 … · 2 KB (E.G.)`
+- **Sources:** [server.c#L4655-L4671](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4655-L4671), [evict.c#L515-L521](https://github.com/redis/redis/blob/8.10.3/src/evict.c#L515-L521)
 
-#### S12 · `mutate` robj · LRU 시계는 24비트, 초 단위
-- **Subtitle:** 객체마다 마지막 접근 시각을 24비트 초 단위 시계로 저장한다.
+#### S5 · `mutate` main · 근사 LRU: 몇 개만 뽑아 가장 오래 안 쓴 키를 고른다
+- **Subtitle:** 전체를 정렬하지 않는다. 5개를 샘플링해 후보 pool에 넣고 idle이 가장 긴 키를 고른다.
 - **Prose:**
-  > `lru` 24비트에는 마지막 접근 시각을 1000 ms 해상도로 담습니다.
-  > idle 시간은 지금의 LRU 시계에서 이 값을 빼서 구합니다. 24비트 초는 약 194일마다 한 바퀴 돕니다(계산값).
+  > 정확한 LRU는 모든 키를 순서대로 엮어야 해 메모리가 듭니다. Redis는 `maxmemory-samples`(5)개를 뽑아 후보 pool에 넣고, 그중 가장 오래 안 쓴 키를 지웁니다.
+  > 샘플을 10으로 올리면 실제 LRU에 가까워지고 CPU를 더 씁니다.
 - **Facts:**
-  - `LRU_BITS`: 24; `LRU_CLOCK_RESOLUTION`: 1000 ms
-  - `getLRUClock() = (mstime()/1000) & LRU_CLOCK_MAX`
-  - Wrap-around: 2^24 s ≈ 194 days (computed)
-- **Event log:** `main → robj · Evict · touch cart:12, lru = clock · —`
-- **State (robj: `cart:12`):**
-  - before: `lru = 0x2A3F10 (E.G.)`
-  - after: `lru = 0x2A51F3 (E.G.)`
-- **Sources:** [object.h#L92-L94](https://github.com/redis/redis/blob/8.10.3/src/object.h#L92-L94), [evict.c#L55-L57](https://github.com/redis/redis/blob/8.10.3/src/evict.c#L55-L57)
+  - `maxmemory-samples`: 5 (10 approximates true LRU very closely, at more CPU)
+  - Idle time comes from a per-object access clock with 1-second resolution
+- **Event log:** `main → main · Evict · sampled 5, victim product:311 (idle 9000 s) · —`
+- **State (main: memory):**
+  - before: `used` = 1.00 GB; `maxmemory` = 1gb; `policy` = allkeys-lru; `결과` = —
+  - after: `used` = 1.00 GB; `maxmemory` = 1gb; `policy` = allkeys-lru; `결과` = victim `product:311`
+- **Sources:** [redis.conf#L1270-L1278](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1270-L1278), [config.c#L3522](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3522), [evict.c#L93-L96](https://github.com/redis/redis/blob/8.10.3/src/evict.c#L93-L96), [object.h#L92-L94](https://github.com/redis/redis/blob/8.10.3/src/object.h#L92-L94)
 
-#### S13 · `mutate` robj · LFU: 8비트 로그 counter와 16비트 분 단위 시각
-- **Subtitle:** 접근할수록 counter가 오르지만 오를 확률은 점점 작아지고, 시간이 지나면 줄어든다.
+#### S6 · `mutate` mem · 희생 키 삭제
+- **Subtitle:** `product:311`을 지우고 메모리가 한도 아래로 내려가면 `SET`을 실행한다.
 - **Prose:**
-  > LFU 정책에서는 같은 24비트를 상위 16비트(마지막 감소 시각, 분)와 하위 8비트(counter)로 나눕니다.
-  > 새 객체는 counter 5(`LFU_INIT_VAL`)로 시작합니다. 접근할 때 `p = 1 / ((counter − 5) × lfu-log-factor + 1)` 확률로 1 오르고, 255에서 멈춥니다.
-  > `lfu-decay-time`(기본 1분)마다 counter가 1씩 줄어 예전에만 인기 있던 키가 밀려납니다.
+  > 고른 키를 지웁니다. 기본은 main thread에서 바로 해제하므로, 큰 키가 뽑히면 그만큼 지연이 생깁니다(`lazyfree-lazy-eviction`, lesson 7).
+  > `INFO stats`의 `evicted_keys`가 늘어납니다.
 - **Facts:**
-  - Layout: 16-bit time (minutes) + 8-bit counter; `LFU_INIT_VAL` = 5
-  - `lfu-log-factor`: 10 (≈ 1M hits → 255); `lfu-decay-time`: 1 minute
-  - redis.conf writes `1/(old_value*factor+1)`; the code subtracts `LFU_INIT_VAL` first
-- **Event log:** `main → robj · Evict · LFULogIncr counter 5 → 6 (p = 1.0) · —`
-- **State (robj: `product:7` LFU, E.G.):**
-  - before: `time = 29895840 min & 0xFFFF`, `counter = 5`
-  - after: `counter = 6`
-- **Sources:** [evict.c#L230-L267](https://github.com/redis/redis/blob/8.10.3/src/evict.c#L230-L267), [evict.c#L281-L308](https://github.com/redis/redis/blob/8.10.3/src/evict.c#L281-L308), [server.h#L4471](https://github.com/redis/redis/blob/8.10.3/src/server.h#L4471), [object.c#L125](https://github.com/redis/redis/blob/8.10.3/src/object.c#L125), [config.c#L3518-L3519](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3518-L3519), [redis.conf#L2571-L2608](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2571-L2608)
+  - `lazyfree-lazy-eviction`: no (freed on the main thread)
+  - Counter: `evicted_keys` in `INFO stats`
+- **Event log:** `main → mem · Evict · evict product:311 · 2.1 KB freed (E.G.)`
+- **State (mem: db0):**
+  - before: `product:311` · 9000 s; `cart:12` · 4200 s; `user:7` · 3 s
+  - after: `cart:12` · 4200 s; `user:7` · 3 s; `cart:9` · 0 s
+- **Sources:** [evict.c#L686](https://github.com/redis/redis/blob/8.10.3/src/evict.c#L686), [db.c#L2895-L2896](https://github.com/redis/redis/blob/8.10.3/src/db.c#L2895-L2896), [db.c#L2842](https://github.com/redis/redis/blob/8.10.3/src/db.c#L2842), [config.c#L3410](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3410)
 
-#### S14 · `move` app2 → db · 인기 키가 만료되면: cache stampede
-- **Subtitle:** `product:7`이 만료된 순간 N개 instance가 동시에 miss하고 모두 DB로 간다.
+#### S7 · `move` main → peer1 · eviction도 `DEL`로 전파
+- **Subtitle:** replica는 스스로 evict하지 않고 master의 `DEL`을 따른다.
 - **Prose:**
-  > cache-aside에서 인기 키가 만료되면 동시에 들어온 요청이 모두 miss합니다.
-  > 각 instance가 같은 행을 DB에서 다시 읽고 다시 `SET`합니다. 캐시가 막으려던 부하가 한꺼번에 DB로 몰립니다.
-  > 만료 자체는 정상 동작(S4, S6)이므로 Redis 쪽에서 막을 수 없고, 애플리케이션이 재계산을 한 번만 하도록 조율해야 합니다.
-- **Token:** `request` · `SELECT * FROM product WHERE id=7` ×N
+  > master가 지운 키는 `DEL`로 replica와 AOF에 전파됩니다.
+  > replica는 기본적으로 `maxmemory`를 무시합니다. 그래서 replica 메모리도 master와 같은 여유가 필요합니다.
+- **Token:** `data` · `DEL product:311`
 - **Facts:**
-  - Docs name it "a cache stampede that amplifies the exact load spike caching was supposed to prevent"
-  - Docs list mitigations: mutex lock or probabilistic early refresh, done atomically with Lua
-- **Event log:** `app2 → db · SQL · 200 concurrent SELECT product:7 (E.G.) · 200 × 15 ms (E.G.)`
+  - `replica-ignore-maxmemory`: yes
+  - Docs: eviction "will be just handled by the master, sending the DEL commands to the replica"
+- **Event log:** `main → peer1 · Replication · DEL product:311 · 31 B`
+- **Sources:** [db.c#L2918-L2930](https://github.com/redis/redis/blob/8.10.3/src/db.c#L2918-L2930), [redis.conf#L1288-L1306](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1288-L1306), [config.c#L3429](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3429)
+
+#### S8 · `mutate` main · 자주 쓰는 키를 지키려면 LFU
+- **Subtitle:** LFU는 최근성 대신 접근 빈도로 고른다. 빈도는 로그로 늘고 시간이 지나면 줄어든다.
+- **Prose:**
+  > LRU는 한 번 훑고 지나간 키도 "최근"으로 봅니다. LFU는 접근 빈도를 세서, 자주 쓰는 키를 남깁니다.
+  > counter는 로그 확률로 늘고 1분마다 줄어, 예전에만 인기 있던 키는 밀려납니다. `OBJECT FREQ`로 볼 수 있습니다.
+- **Facts:**
+  - `lfu-log-factor`: 10 (about 1M hits saturate the 8-bit counter); `lfu-decay-time`: 1 minute
+  - `OBJECT FREQ` works only under an LFU policy
+- **Event log:** `client → main · RESP2 · CONFIG SET maxmemory-policy allkeys-lfu · —`
+- **State (main: memory):**
+  - before: `used` = 1.00 GB; `maxmemory` = 1gb; `policy` = allkeys-lru; `결과` = victim `product:311`
+  - after: `used` = 1.00 GB; `maxmemory` = 1gb; `policy` = allkeys-lfu; `결과` = —
+- **Sources:** [redis.conf#L2571-L2608](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2571-L2608), [config.c#L3518-L3519](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3518-L3519), [object-freq.md#L51](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/object-freq.md#L51)
+
+### Replay
+
+S4 → S5 → S6 → S7: client → main (sample) → mem (delete) → peer1 (`DEL`).
+
+### Decoder records
+
+**D4.1 · step S2 · `wire` · OOM error reply.**
+
+| Bytes (text) | Field | Meaning |
+|---|---|---|
+| `-` | type | error |
+| `OOM` | error code | first word; client libraries map it to an exception type |
+| ` command not allowed when used memory > 'maxmemory'.` | message | |
+| `\r\n` | terminator | |
+
+Source: [server.c#L2249-L2250](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2249-L2250).
+
+### Self-check
+
+1. **Q:** 기본 설정에서 메모리가 `maxmemory`에 닿으면? **A:** `noeviction`이므로 쓰기 명령은 `-OOM`, 읽기는 정상.
+2. **Q:** `volatile-lru`인데 `-OOM`이 나는 이유는? **A:** TTL 있는 키가 없으면 후보가 없어 `noeviction`처럼 동작한다.
+3. **Q:** Redis LRU가 근사인 이유는? **A:** 전체를 정렬하지 않고 5개를 샘플링해 후보 pool에서 idle이 가장 긴 키를 지운다.
+
+---
+
+## Lesson 5. `cache-lock`: cache stampede와 Redis lock
+
+**Goal.** See the cache-aside read and write paths, what a hot key's expiry does to the database, how a `SET NX PX` lock lets one instance reload, and why that lock can break on failover.
+
+**Critical path.** miss → DB → fill with TTL; on a hot-key expiry, one `SET NX PX` winner reloads while the others wait.
+
+**Interview and incident questions**
+- cache-aside에서 DB를 바꿀 때 캐시는? 오래된 값은 얼마나 남나?
+- cache stampede(thundering herd)는 왜 생기고 어떻게 막나?
+- `SET NX PX` lock의 값을 랜덤 token으로 하는 이유와 해제 방법은?
+- master-replica에서 이 lock이 안전하지 않은 이유는?
+
+**Overview (one line).** 8.4부터 `DELEX key IFEQ token`으로 Lua 없이 비교 후 삭제할 수 있다(distributed-locks docs).
+
+**Nodes:** `client` (app: order-api ×N, kind `app`), `db` (MySQL), `main` (Redis master), `mem` (keys), `peer1` (replica).
+
+**State panels**
+
+| Node | Panel | Columns | Initial rows |
+|---|---|---|---|
+| `mem` | keys | key · value · TTL | (empty) |
+| `peer1` | replica | item · value | `role` = replica; `lock:order:9` = — |
+
+**Layer selector:** `Cache` · `Lock` · `Failover`.
+
+### Steps
+
+#### S1 · `move` client → main · 캐시에서 먼저 읽는다
+- **Subtitle:** `GET product:7` → 없음(miss).
+- **Prose:**
+  > cache-aside에서 앱은 먼저 Redis를 읽습니다. 없으면 DB에서 읽어 Redis에 넣습니다. 캐시는 앱이 채우고 지웁니다.
+- **Token:** `request` · `GET product:7`
+- **Facts:**
+  - Docs: "The application reads from Redis on every request, falls back to the primary on a miss, and writes the result back to Redis"
+  - Key per entity, for example `cache:{entity}:{id}`
+- **Event log:** `client → main · RESP2 · GET product:7 → nil · 28 B / 5 B`
+- **Sources:** [cache-aside/_index.md#L41](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/use-cases/cache-aside/_index.md#L41)
+
+#### S2 · `move` client → db · miss면 DB에서 읽는다
+- **Subtitle:** `SELECT … WHERE id = 7`.
+- **Prose:**
+  > miss면 원본 DB(primary)에서 읽습니다. 이 왕복이 캐시가 아끼려던 비용입니다.
+- **Token:** `request` · `SELECT * FROM product WHERE id=7`
+- **Facts:**
+  - The primary stays the source of truth; the cache holds a copy
+  - A miss costs one DB round trip plus one Redis write
+- **Event log:** `client → db · SQL · SELECT product 7 · 15 ms (E.G.)`
+- **Sources:** [cache-aside/_index.md#L41](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/use-cases/cache-aside/_index.md#L41), [cache-aside/redis-py/_index.md#L33-L42](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/use-cases/cache-aside/redis-py/_index.md#L33-L42)
+
+#### S3 · `mutate` mem · TTL을 붙여 채운다
+- **Subtitle:** `SET product:7 {…} EX 600` — TTL이 오래된 값이 남을 수 있는 최대 시간이다.
+- **Prose:**
+  > 읽은 값을 TTL과 함께 넣습니다. TTL은 캐시가 원본과 달라도 그 시간 뒤에는 사라진다는 상한입니다.
+- **Facts:**
+  - Docs: TTL "bounds how long stale data can be served"
+  - Use `SET … EX` (one command) rather than `SET` then `EXPIRE`
+- **Event log:** `client → main · RESP2 · SET product:7 … EX 600 · —`
+- **State (mem: keys):**
+  - before: (empty)
+  - after: `product:7` · {…} · 600 s
+- **Sources:** [cache-aside/_index.md#L41-L49](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/use-cases/cache-aside/_index.md#L41-L49)
+
+#### S4 · `mutate` mem · DB를 바꾸면 캐시 키를 지운다
+- **Subtitle:** 쓰기는 DB에 하고, 캐시는 갱신하지 않고 `DEL`한다. 다음 읽기가 새 값을 채운다.
+- **Prose:**
+  > 상품 정보를 바꾸면 앱은 DB에 쓰고 캐시 키를 지웁니다. 다음 읽기가 miss로 새 값을 다시 채웁니다.
+  > 지우기 전에 읽은 client는 잠시 옛 값을 볼 수 있고, 그 범위를 TTL이 묶어 둡니다.
+- **Facts:**
+  - Docs: "On updates, the application writes the primary and invalidates the cache key"
+  - Invalidation command: `DEL`
+- **Event log:** `client → main · RESP2 · DEL product:7 (after UPDATE in DB) · —`
+- **State (mem: keys):**
+  - before: `product:7` · {…} · 600 s
+  - after: (empty)
+- **Sources:** [cache-aside/_index.md#L35](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/use-cases/cache-aside/_index.md#L35), [cache-aside/_index.md#L41](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/use-cases/cache-aside/_index.md#L41), [cache-aside/redis-py/_index.md#L191-L196](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/use-cases/cache-aside/redis-py/_index.md#L191-L196)
+
+#### S5 · `move` client → db · 인기 키가 사라진 순간: stampede
+- **Subtitle:** 수백 개 요청이 동시에 miss하고 모두 DB로 간다.
+- **Prose:**
+  > 인기 키가 만료되거나 지워진 순간 들어온 요청은 모두 miss합니다. instance마다 같은 행을 DB에서 다시 읽습니다.
+  > 캐시가 막던 부하가 한꺼번에 DB로 몰립니다.
+- **Token:** `request` · `SELECT … ×200 (E.G.)`
+- **Facts:**
+  - Docs: "a cache stampede that amplifies the exact load spike caching was supposed to prevent"
+  - Docs list mutex locks or probabilistic early refresh as mitigations
+- **Event log:** `client → db · SQL · 200 concurrent SELECT product 7 (E.G.) · DB CPU spike`
 - **Sources:** [cache-aside/_index.md#L24](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/use-cases/cache-aside/_index.md#L24), [cache-aside/_index.md#L58-L60](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/use-cases/cache-aside/_index.md#L58-L60)
 
-#### S15 · `move` app1 → main · 한 instance만 재계산: `SET NX PX` lock
-- **Subtitle:** `SET lock:product:7 <token> NX PX 30000` — 성공한 하나만 DB를 읽고, 나머지는 cache를 다시 본다.
+#### S6 · `mutate` mem · 한 instance만 lock을 얻는다
+- **Subtitle:** `SET lock:product:7 <token> NX PX 30000` — 키가 없을 때만 성공한다.
 - **Prose:**
-  > miss한 instance는 먼저 `SET lock:… <random token> NX PX 30000`을 시도합니다. 키가 없을 때만 성공하므로 하나만 lock을 얻습니다.
-  > lock을 얻은 쪽이 DB를 읽어 cache를 채우고, 나머지는 잠깐 기다렸다가 cache를 다시 읽습니다.
-  > token은 client마다 달라야 합니다. 그래야 TTL이 지나 남의 lock이 된 키를 실수로 지우지 않습니다.
-- **Token:** `request` · `SET lock:product:7 8f14… NX PX 30000`
+  > miss한 instance는 먼저 `SET lock:… <token> NX PX 30000`을 보냅니다. 키가 없을 때만 성공하므로 하나만 이깁니다.
+  > 진 쪽은 DB로 가지 않고 잠깐 기다렸다 캐시를 다시 읽습니다. `PX`는 lock 주인이 죽어도 lock이 풀리게 합니다.
 - **Facts:**
   - Acquire: `SET resource_name my_random_value NX PX 30000`
-  - Token: unique per client and per request (docs suggest 20 bytes from `/dev/urandom`)
-  - Losers: poll the cache (docs worked example)
-- **Event log:** `app1 → main · RESP2 · SET lock:product:7 <token> NX PX 30000 → +OK · 100 B (token E.G.)`
-- **Sources:** [distributed-locks.md#L99-L102](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/clients/patterns/distributed-locks.md#L99-L102), [distributed-locks.md#L117-L120](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/clients/patterns/distributed-locks.md#L117-L120), [cache-aside/redis-py/_index.md#L121-L135](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/use-cases/cache-aside/redis-py/_index.md#L121-L135), [set.md#L101-L111](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/set.md#L101-L111)
+  - The value must be unique per client and request (docs: 20 random bytes)
+  - Losers poll the cache instead of reading the DB
+- **Event log:** `client → main · RESP2 · SET lock:product:7 <token> NX PX 30000 → +OK (1 of 200) · —`
+- **State (mem: keys):**
+  - before: (empty)
+  - after: `lock:product:7` · tokenA · 30 s
+- **Sources:** [distributed-locks.md#L99-L102](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/clients/patterns/distributed-locks.md#L99-L102), [distributed-locks.md#L117-L120](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/clients/patterns/distributed-locks.md#L117-L120), [cache-aside/redis-py/_index.md#L121-L135](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/use-cases/cache-aside/redis-py/_index.md#L121-L135)
 
-#### S16 · `move` app1 → main · 내 lock일 때만 지운다: `DELEX … IFEQ`
-- **Subtitle:** 8.4부터 `DELEX key IFEQ token`. 그 전에는 GET 비교 후 DEL하는 Lua script.
+#### S7 · `mutate` mem · 이긴 쪽이 다시 채운다
+- **Subtitle:** DB를 한 번 읽어 `SET product:7 … EX 600`. 기다리던 instance들은 이 값을 읽는다.
 - **Prose:**
-  > 일이 끝나면 lock을 풀어야 하는데, 그냥 `DEL`하면 내 TTL이 이미 지나 다른 instance가 잡은 lock을 지울 수 있습니다.
-  > 8.4부터는 `DELEX lock:product:7 IFEQ <token>`으로 값이 같을 때만 지웁니다. 지우면 1, 아니면 0입니다.
-  > 8.4 이전에는 `GET`과 비교 후 `DEL`하는 Lua script를 썼습니다. script는 원자적으로 실행되므로 사이에 끼어들 수 없습니다.
-- **Token:** `request` · `DELEX lock:product:7 IFEQ 8f14…`
+  > lock을 얻은 instance만 DB를 읽고 캐시를 채웁니다. 기다리던 instance들은 다시 읽어 hit합니다.
+  > DB에는 요청이 한 번만 갑니다.
 - **Facts:**
-  - `DELEX`: since 8.4.0; returns 1 if deleted, 0 if not
-  - `SET … IFEQ/IFNE/IFDEQ/IFDNE`: since 8.4.0
-  - Pre-8.4 release: `if redis.call("get",KEYS[1]) == ARGV[1] then return redis.call("del",KEYS[1]) else return 0 end`
-- **Event log:** `app1 → main · RESP2 · DELEX lock:product:7 IFEQ <token> → :1 · 85 B (token E.G.)`
-- **Sources:** [distributed-locks.md#L107-L115](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/clients/patterns/distributed-locks.md#L107-L115), [delex.md#L64-L67](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/delex.md#L64-L67), [delex.md#L129](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/delex.md#L129), [set.md#L110-L111](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/set.md#L110-L111), [commands.def#L13077](https://github.com/redis/redis/blob/8.10.3/src/commands.def#L13077)
+  - One DB read per expiry instead of one per waiting request
+  - Docs example: losers "wait briefly for the cache to populate, then return that value"
+- **Event log:** `client → main · RESP2 · SET product:7 … EX 600 · —`
+- **State (mem: keys):**
+  - before: `lock:product:7` · tokenA · 30 s
+  - after: `lock:product:7` · tokenA · 29 s; `product:7` · {…} · 600 s
+- **Sources:** [cache-aside/redis-py/_index.md#L40-L42](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/use-cases/cache-aside/redis-py/_index.md#L40-L42)
 
-### Decoder records
-
-**D3.1 Propagated form of `SET session:42 v EX 60` (what replicas and the AOF see).** Layers: array header · argv[0..4].
-
-| Bytes (text) | Field | Value | E.G.? |
-|---|---|---|---|
-| `*5\r\n` | array header | 5 args | |
-| `$3\r\nSET\r\n` | argv[0] | `SET` | |
-| `$10\r\nsession:42\r\n` | argv[1] | key | |
-| `$1\r\nv\r\n` | argv[2] | value | |
-| `$4\r\nPXAT\r\n` | argv[3] | `EX` rewritten to `PXAT` | |
-| `$13\r\n1793750460000\r\n` | argv[4] | `now + 60000` ms | E.G. |
-
-Sources: [t_string.c#L193-L205](https://github.com/redis/redis/blob/8.10.3/src/t_string.c#L193-L205), [t_string.c#L256-L260](https://github.com/redis/redis/blob/8.10.3/src/t_string.c#L256-L260), [server.c#L2338](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2338).
-
-**D3.2 LFU data in the 24-bit `lru` field.** Layers: time · counter.
-
-| Bits | Field | Value | Meaning |
-|---|---|---|---|
-| 23–8 (16 bits) | ldt | `(unixtime/60) & 65535` | last decrement time, minutes (E.G.) |
-| 7–0 (8 bits) | LOG_C | 5 at creation | logarithmic access counter, saturates at 255 |
-
-Sources: [evict.c#L230-L267](https://github.com/redis/redis/blob/8.10.3/src/evict.c#L230-L267), [object.h#L109-L111](https://github.com/redis/redis/blob/8.10.3/src/object.h#L109-L111).
-
-### Self-check
-
-1. **Q:** TTL이 지난 키가 메모리에 남아 있을 수 있나? 어떻게 지워지나? **A:** 남을 수 있다. 접근할 때 지우는 lazy 방식과, serverCron(slow, 기본 25 ms/100 ms)과 beforeSleep(fast, 1 ms)에서 샘플링해 지우는 active 방식 두 가지로 지운다.
-2. **Q:** active expire cycle이 같은 DB를 다시 훑는 조건은? **A:** 한 번 본 키 중 만료 비율이 `ACTIVE_EXPIRE_CYCLE_ACCEPTABLE_STALE`(10%, effort 1)을 넘을 때. 시간 한도에 닿으면 멈춘다.
-3. **Q:** replica에서 만료된 키를 `GET`하면? **A:** replica는 키를 지우지 않지만 읽기 명령에는 없다고 답한다. 실제 삭제는 master가 보내는 `DEL`/`UNLINK`로 한다.
-4. **Q:** `maxmemory`를 설정하고 정책을 안 바꾸면 메모리가 꽉 찰 때 무슨 일이 일어나나? **A:** `noeviction`이므로 `DENYOOM` 명령은 `-OOM command not allowed when used memory > 'maxmemory'.`를 받고, 읽기는 계속 된다.
-5. **Q:** Redis LRU가 "근사"인 이유는? **A:** 전체 키를 순서대로 관리하지 않고, `maxmemory-samples`(5)개를 뽑아 16칸 pool에서 idle이 가장 긴 키를 지우기 때문.
-6. **Q:** LFU counter가 8비트로 충분한 이유는? **A:** 로그 확률로 증가한다(`1/((c−5)×10+1)`). 기본 factor 10이면 약 100만 번 접근해야 255가 된다. 또 시간이 지나면 줄어든다.
-7. **Q:** cache stampede를 Redis lock으로 막을 때 lock 값을 랜덤 token으로 하는 이유와 해제 방법은? **A:** TTL이 지나 다른 client가 잡은 lock을 지우지 않으려고. 8.4+는 `DELEX key IFEQ token`, 이전은 GET 비교 후 DEL하는 Lua script.
-
----
-
-## Lesson 4. `rdb`: fork 한 번으로 스냅샷, RDB와 copy-on-write
-
-**Goal.** Follow one `BGSAVE`: the parent forks, parent and child share memory pages until the parent writes, the child streams a compact binary file and renames it into place, and the parent learns how much memory copy-on-write cost.
-
-**Interview questions it answers**
-- RDB 저장 중에도 Redis가 요청을 계속 받을 수 있는 이유는?
-- fork 후 메모리가 두 배가 되나? copy-on-write는 언제 페이지를 복사하나?
-- RDB만 쓸 때 잃을 수 있는 데이터 범위는? 기본 save point는?
-- `MISCONF` 오류는 왜 나오나?
-
-**Nodes**
-
-| id | label | sublabel | kind | Illustration idea | First appears |
-|---|---|---|---|---|---|
-| `client` | app | | `client` | Laptop | S2 |
-| `parent` | Redis (parent) | main thread | `framework` | Gear | S1 |
-| `pages` | Memory pages | page table | `container` | Grid of page tiles with arrows from two processes | S4 |
-| `child` | redis-rdb-bgsave | fork child | `container` | Smaller copy of the gear, dashed outline | S3 |
-| `tmp` | temp-<pid>.rdb | | `storage` | Paper sheet being written | S6 |
-| `rdb` | dump.rdb | | `storage` | Disk platter with a file tab | S9 |
-
-**Layer selector:** `Process` (fork, signals, child info pipe) · `Memory` (pages, COW) · `File` (RDB bytes).
-
-### Steps
-
-#### S1 · `mutate` parent · save point을 센다
-- **Subtitle:** 기본 save point는 `3600 1`, `300 100`, `60 10000`. 변경 수(`dirty`)와 지난 시간이 둘 다 넘으면 저장한다.
+#### S8 · `mutate` mem · 내 token일 때만 lock을 지운다
+- **Subtitle:** `GET`으로 비교하고 같을 때만 `DEL`하는 Lua script. script는 원자적이다.
 - **Prose:**
-  > `serverCron`은 자식 프로세스가 없을 때 save point을 검사합니다.
-  > "N초가 지났고 그동안 변경이 M번 이상"인 조건 하나라도 맞으면 `BGSAVE`를 시작합니다.
-  > `save` 줄이 없으면 기본값 `3600 1 300 100 60 10000`이 쓰이고, `save ""`이면 꺼집니다. 실패 직후에는 5초 기다렸다 다시 시도합니다.
+  > 그냥 `DEL`하면, 내가 오래 멈춘 사이 TTL이 지나 다른 instance가 잡은 lock을 지울 수 있습니다.
+  > 그래서 값이 내 token과 같을 때만 지우는 Lua script를 씁니다. script 실행 중에는 다른 명령이 끼어들지 않습니다.
 - **Facts:**
-  - Default save points: 1 change in 3600 s, 100 in 300 s, 10000 in 60 s
-  - Retry delay after a failed BGSAVE: `CONFIG_BGSAVE_RETRY_DELAY` = 5 s
-  - Log: `%d changes in %d seconds. Saving...`
-- **Event log:** `parent → parent · Process · serverCron: 100 changes in 300 seconds → BGSAVE (E.G.) · —`
-- **State (parent: save state):**
-  - before: `dirty = 99`, `lastsave = t−301 s`
-  - after: `dirty = 100` → `save point 300 100 matched`
-- **Sources:** [server.c#L2489-L2491](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2489-L2491), [redis.conf#L497-L506](https://github.com/redis/redis/blob/8.10.3/redis.conf#L497-L506), [server.c#L1700-L1727](https://github.com/redis/redis/blob/8.10.3/src/server.c#L1700-L1727), [server.h#L136](https://github.com/redis/redis/blob/8.10.3/src/server.h#L136)
+  - Release script: `if redis.call("get",KEYS[1]) == ARGV[1] then return redis.call("del",KEYS[1]) else return 0 end`
+  - Docs: the random value avoids "removing a lock that was created by another client"
+- **Event log:** `client → main · RESP2 · EVAL <release> 1 lock:product:7 tokenA → :1 · —`
+- **State (mem: keys):**
+  - before: `lock:product:7` · tokenA · 29 s; `product:7` · {…} · 600 s
+  - after: `product:7` · {…} · 600 s
+- **Sources:** [distributed-locks.md#L107-L118](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/clients/patterns/distributed-locks.md#L107-L118), [eval-intro.md#L28-L30](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/programmability/eval-intro.md#L28-L30)
 
-#### S2 · `move` client → parent · `BGSAVE`
-- **Subtitle:** 직접 명령으로도 시작한다. 이미 자식이 있으면 거절하거나 `SCHEDULE`로 예약한다.
+#### S9 · `move` client → peer1 · failover 뒤 다른 instance도 같은 lock을 얻는다 (side path)
+- **Subtitle:** lock이 replica에 복제되기 전에 master가 죽고 replica가 승격되었다.
 - **Prose:**
-  > `BGSAVE`는 즉시 `Background saving started`로 답하고 저장은 자식이 합니다.
-  > 이미 RDB 저장 중이면 `Background save already in progress`, AOF rewrite 같은 다른 자식이 있으면 거절합니다. `BGSAVE SCHEDULE`은 그 자식이 끝난 뒤로 예약합니다.
-  > `SAVE`는 main thread에서 직접 저장하므로 그동안 모든 client가 멈춥니다.
-- **Token:** `request` · `BGSAVE`
-- **Facts:**
-  - Reply: `+Background saving started`
-  - Only one child process (RDB or AOF rewrite) at a time
-- **Event log:** `client → parent · RESP2 · BGSAVE → +Background saving started · 28 B reply`
-- **Sources:** [rdb.c#L5473-L5507](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L5473-L5507)
-
-#### S3 · `mutate` parent · `fork()`
-- **Subtitle:** `redisFork(CHILD_TYPE_RDB)`. 큰 dataset에서는 fork 자체가 수 ms~1초 걸릴 수 있다.
-- **Prose:**
-  > 부모는 `redisFork()`로 자식을 만듭니다. 자식의 프로세스 이름은 `redis-rdb-bgsave`입니다.
-  > fork는 page table을 복사하므로 dataset이 크면 오래 걸리고, 그동안 부모는 client를 받지 못합니다. 걸린 시간은 `INFO`의 `latest_fork_usec`에 남습니다.
-  > fork 직후 부모는 dict resize를 피하고(`AVOID`), 자식은 금지합니다(`FORBID`). 메모리를 덜 건드려야 복사가 줄기 때문입니다.
-- **Facts:**
-  - Docs: fork "can be time consuming if the dataset is big … for some milliseconds or even for one second"
-  - Resize policy: parent `AVOID` (resize only at load factor ≥ 4), child `FORBID`
-  - Child OOM score: `CONFIG_OOM_BGCHILD`
-- **Event log:** `parent → child · Process · fork() pid 48213 (E.G.) · 12 ms (E.G.)`
-- **State (parent: child status):**
-  - before: `child_type = none`, `dict resize = ENABLE`
-  - after: `child_type = RDB`, `child_pid = 48213 (E.G.)`, `dict resize = AVOID`
-- **Sources:** [rdb.c#L2223-L2255](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L2223-L2255), [server.c#L7497-L7566](https://github.com/redis/redis/blob/8.10.3/src/server.c#L7497-L7566), [server.c#L819-L832](https://github.com/redis/redis/blob/8.10.3/src/server.c#L819-L832), [server.c#L6790](https://github.com/redis/redis/blob/8.10.3/src/server.c#L6790), [persistence.md#L38](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L38)
-
-#### S4 · `mutate` pages · 두 프로세스가 같은 페이지를 본다
-- **Subtitle:** fork 직후에는 복사가 없다. 부모와 자식의 page table이 같은 물리 페이지를 가리킨다.
-- **Prose:**
-  > fork 직후 부모와 자식은 같은 물리 메모리 페이지를 공유합니다. 커널은 공유 페이지를 읽기 전용으로 표시해 둡니다.
-  > 자식은 fork 순간의 메모리를 그대로 보므로, 따로 lock 없이 일관된 스냅샷을 쓸 수 있습니다.
-  > docs는 이를 "copy-on-write semantics"를 이용한다고 설명합니다.
-- **Facts:**
-  - Snapshot consistency comes from the fork moment, not from locking
-  - Docs: "This method allows Redis to benefit from copy-on-write semantics"
-- **Event log:** `child → pages · Memory · share all pages with parent · 0 MB copied`
-- **State (pages, E.G.):**
-  - before: `P1..P4 → parent`
-  - after: `P1..P4 → parent + child (shared, read-only)`
-- **Sources:** [persistence.md#L91-L99](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L91-L99)
-
-#### S5 · `mutate` pages · 부모가 쓰는 페이지만 복사된다
-- **Subtitle:** 저장 중 `SET user:1 bob`이 P3를 건드리면 커널이 P3를 복사해 부모에게 준다.
-- **Prose:**
-  > 저장 중에도 부모는 쓰기를 받습니다. 공유 페이지에 처음 쓰는 순간 커널이 그 페이지를 복사합니다.
-  > 자식은 여전히 옛 P3를 보므로 스냅샷은 fork 시점 그대로입니다.
-  > 쓰기가 많을수록 복사가 늘어, 최악에는 메모리 사용이 두 배 가까이 됩니다. 자식은 `/proc/self/smaps`의 `Private_Dirty`로 이 양을 잽니다.
-- **Facts:**
-  - Measured as `Private_Dirty` (`zmalloc_get_private_dirty`)
-  - INFO: `current_cow_size`, `current_cow_peak`, `rdb_last_cow_size`
-- **Event log:** `client → parent · RESP2 · SET user:1 bob → page P3 copied · 4 KB (page size E.G.)`
-- **State (pages, E.G.):**
-  - before: `P3 → parent + child (shared)`
-  - after: `P3 → child`, `P3' → parent (private copy)`
-- **Sources:** [childinfo.c#L71-L82](https://github.com/redis/redis/blob/8.10.3/src/childinfo.c#L71-L82), [zmalloc.c#L1196-L1197](https://github.com/redis/redis/blob/8.10.3/src/zmalloc.c#L1196-L1197), [server.c#L6617-L6633](https://github.com/redis/redis/blob/8.10.3/src/server.c#L6617-L6633), [persistence.md#L224-L225](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L224-L225)
-
-#### S6 · `move` child → tmp · header와 AUX 필드
-- **Subtitle:** `REDIS0015` 9바이트, 그다음 `redis-ver`, `redis-bits`, `ctime`, `used-mem`, `aof-base` AUX.
-- **Prose:**
-  > 자식은 `temp-<pid>.rdb`를 엽니다. 파일은 magic `REDIS`와 4자리 RDB 버전(8.10.3은 `0015`)으로 시작합니다.
-  > 다음은 AUX(`0xFA`) 필드들입니다. 각각 key 문자열과 value 문자열이며, 만든 Redis 버전, 비트 수, 생성 시각, 메모리, AOF preamble 여부를 적습니다.
-  > replica를 위한 RDB면 `repl-id`, `repl-offset`도 적습니다.
-- **Token:** `data` · `REDIS0015 + AUX`
-- **Facts:**
-  - `RDB_VERSION`: 15 → magic `REDIS0015`
-  - AUX opcode: `0xFA` (250)
-  - Always: `redis-ver`, `redis-bits`, `ctime`, `used-mem`, `aof-base`
-- **Event log:** `child → tmp · File · write header + 5 AUX fields · ~90 B (E.G.)`
-- **Record:** D4.1
-- **Sources:** [rdb.h#L21](https://github.com/redis/redis/blob/8.10.3/src/rdb.h#L21), [rdb.c#L2036-L2037](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L2036-L2037), [rdb.c#L1738-L1795](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L1738-L1795), [rdb.h#L101-L114](https://github.com/redis/redis/blob/8.10.3/src/rdb.h#L101-L114)
-
-#### S7 · `move` child → tmp · DB와 키를 쓴다
-- **Subtitle:** `SELECTDB 0`, `RESIZEDB`, 그리고 키마다 [만료 시각] [type] key value.
-- **Prose:**
-  > DB마다 `SELECTDB`(`0xFE`)와 DB 번호, `RESIZEDB`(`0xFB`)와 키 수/만료 키 수를 씁니다. load할 때 hashtable 크기를 미리 잡게 하려는 것입니다.
-  > 키 하나는 만료가 있으면 `EXPIRETIME_MS`(`0xFC`) + 8바이트 little-endian ms, 그다음 type 바이트, key, value입니다.
-  > LRU/LFU 정책일 때만 `IDLE`/`FREQ`를 함께 씁니다. listpack 같은 작은 encoding은 그대로 덤프합니다(`RDB_TYPE_HASH_LISTPACK` = 16).
-- **Token:** `data` · `FC … 00 user:1 alice`
-- **Facts:**
-  - `SELECTDB` 0xFE, `RESIZEDB` 0xFB, `EXPIRETIME_MS` 0xFC
-  - Type bytes: string 0, list quicklist 18, set listpack 20, hash listpack 16, zset listpack 17
-  - Strings ≤ 11 chars that parse as integers are int-encoded; strings > 20 bytes are LZF-compressed when `rdbcompression yes`
-- **Event log:** `child → tmp · File · SELECTDB 0, RESIZEDB 1 1, key user:1 · 28 B`
-- **Record:** D4.2
-- **Sources:** [rdb.c#L1930-L1952](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L1930-L1952), [rdb.c#L1689-L1729](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L1689-L1729), [rdb.c#L135-L139](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L135-L139), [rdb.h#L55-L89](https://github.com/redis/redis/blob/8.10.3/src/rdb.h#L55-L89), [rdb.c#L457-L478](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L457-L478)
-
-#### S8 · `move` child → tmp · EOF와 CRC64
-- **Subtitle:** `0xFF` 다음 8바이트 CRC64. `rdbchecksum no`면 0으로 채운다.
-- **Prose:**
-  > 모든 DB를 쓰면 `EOF`(`0xFF`)와 파일 전체의 CRC64 8바이트를 씁니다.
-  > `rdbchecksum`(기본 yes)을 끄면 checksum은 0이고, load할 때 검사를 건너뜁니다. 저장과 load가 약 10% 빨라집니다.
-  > 그리고 `fflush`와 `fsync`로 디스크에 내립니다.
-- **Token:** `data` · `FF + CRC64`
-- **Facts:**
-  - `EOF` opcode: 0xFF; checksum: 8 bytes, little-endian
-  - `rdbchecksum`: yes (immutable at runtime); `rdbcompression`: yes (LZF)
-- **Event log:** `child → tmp · File · EOF + CRC64, fsync · 9 B`
-- **Sources:** [rdb.c#L2063-L2070](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L2063-L2070), [rdb.c#L2145-L2146](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L2145-L2146), [redis.conf#L523-L536](https://github.com/redis/redis/blob/8.10.3/redis.conf#L523-L536), [config.c#L3400](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3400), [config.c#L3404](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3404)
-
-#### S9 · `mutate` rdb · `rename()`으로 한 번에 바꾼다
-- **Subtitle:** 완성된 임시 파일을 `dump.rdb`로 rename하고 디렉터리도 fsync한다. 반쯤 쓴 RDB는 남지 않는다.
-- **Prose:**
-  > 자식이 직접 `rename(temp-<pid>.rdb, dump.rdb)`를 합니다. rename은 원자적이라 읽는 쪽은 옛 파일이나 새 파일 중 하나만 봅니다.
-  > 그래서 Redis가 돌고 있을 때 RDB 파일을 그대로 복사해 백업해도 안전합니다.
-- **Facts:**
-  - `dbfilename`: `dump.rdb`
-  - Docs: "the RDB is never modified once produced … renamed into its final destination atomically using rename(2)"
-- **Event log:** `child → rdb · File · rename temp-48213.rdb → dump.rdb · —`
-- **State (rdb: files in `dir`):**
-  - before: `dump.rdb (old, t−301 s)`, `temp-48213.rdb (complete)`
-  - after: `dump.rdb (new)`
-- **Sources:** [rdb.c#L2180-L2215](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L2180-L2215), [redis.conf#L554](https://github.com/redis/redis/blob/8.10.3/redis.conf#L554), [persistence.md#L321-L324](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L321-L324)
-
-#### S10 · `move` child → parent · COW 사용량을 알리고 종료
-- **Subtitle:** child info pipe로 COW 크기를 보내고 exit code 0으로 끝난다.
-- **Prose:**
-  > 자식은 `sendChildCowInfo()`로 copy-on-write 크기를 pipe에 쓰고, `Fork CoW for RDB: current … MB, peak … MB` 로그를 남깁니다.
-  > 부모는 1초마다 pipe를 읽어 `current_cow_size`를 갱신합니다. 저장이 끝나면 peak 값이 `rdb_last_cow_size`가 됩니다.
-- **Token:** `data` · `CHILD_INFO_TYPE_RDB_COW_SIZE`
-- **Facts:**
-  - Parent reads the pipe every 1000 ms (`run_with_period(1000) receiveChildInfo()`)
-  - `rdb_last_cow_size` = peak COW during the save
-- **Event log:** `child → parent · Process · child info: COW peak 38 MB (E.G.), exit 0 · —`
-- **Sources:** [rdb.c#L2223-L2255](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L2223-L2255), [childinfo.c#L71-L114](https://github.com/redis/redis/blob/8.10.3/src/childinfo.c#L71-L114), [server.c#L1702](https://github.com/redis/redis/blob/8.10.3/src/server.c#L1702)
-
-#### S11 · `mutate` parent · 끝 처리: dirty를 빼고 lastsave 갱신
-- **Subtitle:** `backgroundSaveDoneHandler`가 저장 중에 생긴 변경만 `dirty`에 남긴다.
-- **Prose:**
-  > 부모는 `SIGCHLD`로 자식 종료를 알고 `backgroundSaveDoneHandler()`를 부릅니다.
-  > `dirty`에서 fork 시점의 값을 빼 저장 중 생긴 변경만 남기고, `lastsave`와 `lastbgsave_status = ok`를 기록합니다.
-  > 자식이 signal로 죽었으면 임시 파일을 지웁니다.
-- **Facts:**
-  - `dirty = dirty − dirty_before_bgsave`
-  - Log: `Background saving terminated with success`
-- **Event log:** `parent → parent · Process · backgroundSaveDoneHandler ok · 1.8 s total (E.G.)`
-- **State (parent: save state):**
-  - before: `dirty = 140 (E.G.)`, `dirty_before_bgsave = 100`, `lastbgsave_status = —`
-  - after: `dirty = 40`, `lastsave = now`, `lastbgsave_status = ok`, `child_type = none`, `dict resize = ENABLE`
-- **Sources:** [rdb.c#L5184-L5212](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L5184-L5212), [rdb.c#L5245](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L5245)
-
-#### S12 · `mutate` parent · 저장이 실패하면 쓰기를 막는다 (`MISCONF`)
-- **Subtitle:** `stop-writes-on-bgsave-error yes`(기본) — 마지막 BGSAVE가 실패했으면 쓰기 명령을 거절한다.
-- **Prose:**
-  > 디스크가 꽉 차는 등으로 BGSAVE가 실패하면, 기본 설정에서는 쓰기 명령을 `-MISCONF`로 거절합니다. 저장이 안 되는 줄 모르고 쓰는 것을 막으려는 것입니다.
-  > 다음 BGSAVE가 성공하면 다시 받습니다.
-  > RDB만 쓰면 마지막 스냅샷 이후 몇 분치 데이터를 잃을 수 있습니다. 그래서 docs는 RDB와 AOF를 함께 쓰라고 권합니다(lesson 5).
-- **Facts:**
-  - `stop-writes-on-bgsave-error`: yes
-  - Error starts with: `-MISCONF Redis is configured to save RDB snapshots, but it's currently unable to persist to disk.`
-  - Docs: with RDB "you should be prepared to lose the latest minutes of data"
-- **Event log:** `client → parent · RESP2 · SET x 1 → -MISCONF … · —`
-- **State (parent):**
-  - before: `lastbgsave_status = ok`, `writes = accepted`
-  - after: `lastbgsave_status = err`, `writes = -MISCONF`
-- **Sources:** [redis.conf#L521](https://github.com/redis/redis/blob/8.10.3/redis.conf#L521), [config.c#L3407](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3407), [server.c#L2244](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2244), [persistence.md#L37](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L37), [persistence.md#L61-L69](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L61-L69)
-
-### Decoder records
-
-**D4.1 RDB file start (`REDIS0015` + first AUX field).** Layers: magic · version · AUX.
-
-| Offset | Bytes (hex) | Field | Value |
-|---|---|---|---|
-| 0–4 | `52 45 44 49 53` | magic | `REDIS` |
-| 5–8 | `30 30 31 35` | rdb version | `0015` (ASCII) |
-| 9 | `FA` | opcode | `RDB_OPCODE_AUX` (250) |
-| 10 | `09` | key length | 9 (`00`·001001, 6-bit length) |
-| 11–19 | `72 65 64 69 73 2D 76 65 72` | key | `redis-ver` |
-| 20 | `06` | value length | 6 |
-| 21–26 | `38 2E 31 30 2E 33` | value | `8.10.3` |
-| 27… | `FA 0A 72 65 64 69 73 2D 62 69 74 73 …` | next AUX | `redis-bits` = `64` (value bytes: see Unverified) |
-
-The other AUX fields are `ctime` (E.G.), `used-mem` (E.G.), and `aof-base` (`0` for a plain RDB, `1` for an AOF preamble). Sources: [rdb.c#L2036-L2037](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L2036-L2037), [rdb.c#L1738-L1795](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L1738-L1795), [rdb.h#L22-L41](https://github.com/redis/redis/blob/8.10.3/src/rdb.h#L22-L41).
-
-**D4.2 RDB entry: db0 header and `user:1` = `alice` with a ms expire (28 B).** Layers: DB header · expire · type · key · value.
-
-| Offset | Bytes (hex) | Field | Value | E.G.? |
-|---|---|---|---|---|
-| 0 | `FE` | opcode | `SELECTDB` (254) | |
-| 1 | `00` | db number | 0 | |
-| 2 | `FB` | opcode | `RESIZEDB` (251) | |
-| 3 | `01` | db_size | 1 key | E.G. |
-| 4 | `01` | expires_size | 1 key with TTL | E.G. |
-| 5 | `FC` | opcode | `EXPIRETIME_MS` (252) | |
-| 6–13 | `60 E6 DB A3 A1 01 00 00` | expire | int64 LE = 1793750460000 = 2026-11-04T00:01:00Z | E.G. |
-| 14 | `00` | value type | `RDB_TYPE_STRING` (0) | |
-| 15 | `06` | key length | 6 | |
-| 16–21 | `75 73 65 72 3A 31` | key | `user:1` | |
-| 22 | `05` | value length | 5 | |
-| 23–27 | `61 6C 69 63 65` | value | `alice` | |
-
-Length prefixes: `00xxxxxx` 6-bit, `01xxxxxx xxxxxxxx` 14-bit big-endian, `0x80` + 32-bit big-endian, `0x81` + 64-bit big-endian, `11xxxxxx` special (`0xC0`/`C1`/`C2` = int8/16/32 little-endian, `0xC3` = LZF). Sources: [rdb.c#L1930-L1952](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L1930-L1952), [rdb.c#L1689-L1729](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L1689-L1729), [rdb.c#L135-L139](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L135-L139), [rdb.h#L22-L50](https://github.com/redis/redis/blob/8.10.3/src/rdb.h#L22-L50), [rdb.c#L176-L206](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L176-L206), [rdb.c#L270-L290](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L270-L290). Computed from the writer code, not dumped from a live file.
-
-### Self-check
-
-1. **Q:** BGSAVE 중에도 쓰기를 받을 수 있는 이유는? **A:** fork한 자식이 fork 시점의 메모리를 보고 파일을 쓰고, 부모는 계속 요청을 처리한다. 부모가 쓰는 페이지만 copy-on-write로 복사된다.
-2. **Q:** BGSAVE 중 메모리가 최대 얼마까지 늘 수 있나? 무엇으로 확인하나? **A:** 저장 중 부모가 건드린 페이지만큼 늘고, 모든 페이지를 건드리면 거의 두 배. `INFO persistence`의 `current_cow_size`, `rdb_last_cow_size`로 본다.
-3. **Q:** fork 중 dict resize를 피하는 이유는? **A:** resize(rehash)는 많은 페이지를 건드려 COW 복사를 늘린다. 그래서 부모는 load factor 4 이상일 때만 resize하고, 자식은 resize하지 않는다.
-4. **Q:** RDB 파일이 반쯤 쓰인 채 남지 않는 이유는? **A:** `temp-<pid>.rdb`에 다 쓰고 fsync한 뒤 `rename()`으로 원자적으로 바꾸기 때문.
-5. **Q:** `-MISCONF` 오류는 언제 나오나? **A:** `stop-writes-on-bgsave-error yes`(기본)에서 마지막 BGSAVE가 실패했을 때 쓰기 명령에.
-6. **Q:** 기본 save point와 RDB만 쓸 때의 데이터 손실 범위는? **A:** `3600 1 300 100 60 10000`. 마지막 스냅샷 이후의 쓰기(몇 분치)를 잃을 수 있다.
-
----
-
-## Lesson 5. `aof`: 모든 쓰기를 기록한다, AOF와 multi-part rewrite
-
-**Goal.** Follow one write into the AOF buffer, out to the file, and onto the disk under each `appendfsync` policy, then watch a rewrite produce a new BASE file while new writes keep going to a fresh INCR file.
-
-**Interview questions it answers**
-- `appendfsync` 세 가지의 차이와 각각 잃을 수 있는 데이터는?
-- `everysec`은 어떻게 main thread를 막지 않고 fsync하나? 디스크가 느리면?
-- AOF rewrite는 왜 필요하고, 7.0 이후 multi-part AOF에서는 어떻게 동작하나?
-- AOF에 `SET k v EX 60`은 어떤 모양으로 남나?
-
-**Nodes**
-
-| id | label | sublabel | kind | Illustration idea | First appears |
-|---|---|---|---|---|---|
-| `client` | app | | `client` | Laptop | S2 |
-| `main` | Redis main | `aof_buf` | `framework` | Gear with a notepad | S2 |
-| `bio` | bio thread | `BIO_AOF_FSYNC` | `framework` | Small worker gear with a stopwatch | S6 |
-| `pagecache` | Page cache | kernel | `container` | Translucent box over the disk | S4 |
-| `dir` | appendonlydir/ | base · incr · manifest | `storage` | Folder with three file tabs | S1 |
-| `child` | redis-aof-rewrite | fork child | `container` | Dashed gear | S11 |
-
-**Layer selector:** `Command` (propagation) · `Buffer` (`aof_buf`, page cache) · `Disk` (fsync, files) · `Manifest`.
-
-### Steps
-
-#### S1 · `mutate` dir · AOF를 켜면 디렉터리 하나에 세 종류 파일
-- **Subtitle:** `appendonly yes` → `appendonlydir/`에 BASE, INCR, manifest. 7.0부터의 multi-part AOF.
-- **Prose:**
-  > AOF는 기본으로 꺼져 있습니다(`appendonly no`). 켜면 `appenddirname`(기본 `appendonlydir`) 아래에 파일이 생깁니다.
-  > BASE는 마지막 rewrite 시점의 스냅샷(기본은 RDB 형식), INCR는 그 뒤의 쓰기 명령, manifest는 어떤 파일을 어떤 순서로 읽을지 적은 목록입니다.
-  > 7.0 이전에는 파일 하나(`appendonly.aof`)였습니다.
-- **Facts:**
-  - `appendonly`: no; `appendfilename`: `appendonly.aof`; `appenddirname`: `appendonlydir`
-  - BASE: at most one; file name `<appendfilename>.<seq>.base.rdb` (`.base.aof` without preamble)
-  - INCR: `<appendfilename>.<seq>.incr.aof`; manifest: `appendonly.aof.manifest`
-- **Event log:** `main → dir · Manifest · create appendonly.aof.1.base.rdb, appendonly.aof.1.incr.aof · —`
-- **State (dir: manifest):**
-  - before: `(AOF off)`
-  - after: `appendonly.aof.1.base.rdb seq 1 type b`, `appendonly.aof.1.incr.aof seq 1 type i`
-- **Sources:** [redis.conf#L1491](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1491), [redis.conf#L1512-L1524](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1512-L1524), [aof.c#L44-L71](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L44-L71), [aof.c#L174-L181](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L174-L181), [aof.c#L436-L473](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L436-L473), [persistence.md#L120-L123](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L120-L123)
-
-#### S2 · `move` client → main · `SET user:1 alice EX 60`
-- **Subtitle:** 명령은 먼저 실행되고, 바뀐 데이터만 AOF와 replica로 전파된다.
-- **Prose:**
-  > AOF는 명령을 실행한 뒤에 기록합니다(write-ahead가 아니라 write-after). 실패한 명령이나 읽기 명령은 남지 않습니다.
-  > 기록 대상은 `call()`이 `dirty`를 보고 예약한 전파 목록입니다(lesson 1 S10).
-- **Token:** `request` · `SET user:1 alice EX 60`
-- **Facts:**
-  - Only commands that changed data are propagated (`PROPAGATE_AOF|PROPAGATE_REPL`)
-  - AOF and replication use the same propagated argv
-- **Event log:** `client → main · RESP2 · SET user:1 alice EX 60 · 52 B`
-- **Sources:** [server.c#L4174-L4196](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4174-L4196), [aof.c#L1686-L1688](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1686-L1688)
-
-#### S3 · `mutate` main · `EX 60`은 `PXAT <절대 ms>`로 바뀌어 `aof_buf`에
-- **Subtitle:** 상대 TTL을 절대 시각으로 바꿔 적는다. 재생할 때 TTL이 늘어나지 않게.
-- **Prose:**
-  > `SET … EX 60`은 전파 전에 `SET … PXAT 1793750460000`으로 바뀝니다. AOF를 나중에 재생해도 만료 시각이 같습니다.
-  > DB가 바뀌면 앞에 `SELECT`를 넣습니다. 그리고 RESP 형식 그대로 `aof_buf`에 붙입니다.
-  > `aof-timestamp-enabled yes`면 1초에 한 번 `#TS:<unix 초>` 줄을 넣습니다(기본 no).
-- **Facts:**
-  - `SET … EX/PX/EXAT` → `SET … PXAT <ms>`; `EXPIRE` family → `PEXPIREAT`
-  - `SELECT` written when the db differs from `aof_selected_db` (starts at −1)
-  - `aof-timestamp-enabled`: no; annotation `#TS:<seconds>\r\n`
-- **Event log:** `main → main · Buffer · feedAppendOnlyFile SELECT 0 + SET … PXAT · 89 B`
-- **State (main: aof_buf):**
-  - before: `""`
-  - after: `"*2 SELECT 0" + "*5 SET user:1 alice PXAT 1793750460000"` (89 B)
-- **Record:** D5.1
-- **Sources:** [t_string.c#L193-L205](https://github.com/redis/redis/blob/8.10.3/src/t_string.c#L193-L205), [expire.c#L824-L827](https://github.com/redis/redis/blob/8.10.3/src/expire.c#L824-L827), [aof.c#L1609-L1648](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1609-L1648), [aof.c#L1674-L1688](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1674-L1688), [server.c#L2458](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2458), [redis.conf#L1645](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1645)
-
-#### S4 · `move` main → pagecache · 응답 전에 `write()`
-- **Subtitle:** `beforeSleep`이 client에게 답하기 전에 `flushAppendOnlyFile()`로 `aof_buf`를 파일에 쓴다.
-- **Prose:**
-  > main thread는 잠들기 전 `beforeSleep()`에서 먼저 `aof_buf`를 `write()`하고, 그다음 응답을 보냅니다.
-  > `write()`는 커널 page cache까지만 보냅니다. 디스크에 확실히 남기려면 `fsync()`가 필요하고, 그 시점을 정하는 것이 `appendfsync`입니다.
-- **Token:** `data` · `aof_buf 89 B`
-- **Facts:**
-  - Order in `beforeSleep`: AOF flush before `handleClientsWithPendingWrites`
-  - `write()` reaches the page cache; durability needs `fsync()`
-- **Event log:** `main → pagecache · Buffer · write(appendonly.aof.1.incr.aof) · 89 B`
-- **Sources:** [server.c#L2053-L2057](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2053-L2057), [persistence.md#L159-L166](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L159-L166)
-
-#### S5 · `mutate` pagecache · `always`: 응답 전에 main thread가 fsync
-- **Subtitle:** 가장 안전하고 가장 느리다. fsync가 실패하면 Redis가 종료한다.
-- **Prose:**
-  > `appendfsync always`면 main thread가 `write()` 직후 직접 fsync합니다. 응답은 그 뒤에 나갑니다.
-  > 같은 루프에서 처리한 여러 client의 쓰기는 한 번의 write와 fsync로 묶입니다(group commit).
-  > fsync가 실패하면 데이터 일관성을 보장할 수 없으므로 프로세스를 종료합니다.
-- **Facts:**
-  - Docs: "a single write and a single fsync (before sending the replies)"
-  - fsync error under `always`: Redis exits
-- **Event log:** `pagecache → dir · Disk · fsync (main thread) · 2 ms (E.G.)`
-- **State (pagecache: incr file):**
-  - before: `dirty in page cache = 89 B`
-  - after: `on disk = 89 B`
-- **Sources:** [aof.c#L1581-L1597](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1581-L1597), [persistence.md#L159-L166](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L159-L166), [redis.conf#L1538-L1551](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1538-L1551)
-
-#### S6 · `move` main → bio · `everysec`(기본): 1초마다 bio thread가 fsync
-- **Subtitle:** 마지막 fsync 후 1000 ms가 지났고 진행 중인 fsync가 없으면 bio job을 넣는다.
-- **Prose:**
-  > 기본 `everysec`에서는 main thread가 fsync하지 않습니다. 대신 background I/O(bio) thread에 fsync job을 넘깁니다.
-  > 조건은 지난 fsync 후 1000 ms 이상 지났고, 이미 대기 중인 fsync job이 없을 것입니다.
-  > 그래서 정전 시 최대 약 1초치(아래 S7의 경우 2초 이상) 쓰기를 잃을 수 있습니다.
-- **Token:** `call` · `bioCreateFsyncJob(fd)`
-- **Facts:**
-  - `appendfsync` default: `everysec`
-  - Condition: `mstime − aof_last_fsync ≥ 1000` and no pending `BIO_AOF_FSYNC` job
-  - Docs: "you can only lose one second worth of writes"
-- **Event log:** `main → bio · Disk · bioCreateFsyncJob · —`
-- **Sources:** [config.c#L3492](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3492), [aof.c#L1224-L1235](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1224-L1235), [aof.c#L1598-L1604](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1598-L1604), [persistence.md#L42](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L42)
-
-#### S7 · `mutate` main · 디스크가 느리면 write를 최대 2초 미룬다
-- **Subtitle:** 이전 fsync가 아직 안 끝났으면 `write()`를 미루고, 2초가 넘으면 기다리지 않고 쓴다.
-- **Prose:**
-  > fsync 중인 파일에 `write()`하면 커널에서 막힐 수 있습니다. 그래서 `everysec`에서는 bio fsync가 진행 중이면 write를 미룹니다.
-  > 2초까지는 계속 미루고, 넘으면 `aof_delayed_fsync`를 올리고 경고를 남긴 뒤 그냥 씁니다.
-  > 미루는 동안의 쓰기는 버퍼에만 있으므로, 디스크가 느릴 때 손실 범위는 1초보다 길어집니다.
-- **Facts:**
-  - Postpone window: < 2000 ms
-  - Log: `Asynchronous AOF fsync is taking too long (disk is busy?). Writing the AOF buffer without waiting for fsync to complete, this may slow down Redis.`
-  - INFO counter: `aof_delayed_fsync`
-- **Event log:** `main → main · Buffer · flush postponed, fsync in progress · 2000 ms max`
-- **State (main):**
-  - before: `aof_flush_postponed_start = 0`, `aof_delayed_fsync = 0`
-  - after (2 s later): `aof_flush_postponed_start = t`, `aof_delayed_fsync = 1`, `write = forced`
-- **Sources:** [aof.c#L1437-L1457](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1437-L1457), [server.c#L1748-L1754](https://github.com/redis/redis/blob/8.10.3/src/server.c#L1748-L1754)
-
-#### S8 · `mutate` pagecache · `no`: fsync는 OS에 맡긴다
-- **Subtitle:** Redis는 fsync하지 않는다. Linux는 보통 30초마다 내린다.
-- **Prose:**
-  > `appendfsync no`면 Redis는 `write()`만 하고 fsync는 커널에 맡깁니다. 가장 빠르지만 손실 범위가 가장 큽니다.
-  > `no-appendfsync-on-rewrite yes`로 하면 rewrite나 BGSAVE 자식이 있는 동안에도 fsync를 건너뜁니다(기본 no).
-- **Facts:**
-  - Docs: "Normally Linux will flush data every 30 seconds"
-  - `no-appendfsync-on-rewrite`: no
-- **Event log:** `pagecache → dir · Disk · kernel writeback · ~30 s (Linux, per docs)`
-- **State (pagecache):**
-  - before: `dirty = 89 B`
-  - after: `dirty = 89 B (until kernel writeback)`
-- **Sources:** [persistence.md#L159-L166](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L159-L166), [redis.conf#L1572](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1572), [aof.c#L1576-L1578](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1576-L1578)
-
-#### S9 · `mutate` main · rewrite 시점: 2배 그리고 64 MB
-- **Subtitle:** INCR가 쌓여 AOF가 BASE 대비 100% 커지고 64 MB를 넘으면 rewrite한다.
-- **Prose:**
-  > 같은 키를 1000번 `INCR`하면 AOF에는 1000줄이 남지만 필요한 것은 마지막 값 하나입니다. rewrite는 현재 메모리로 새 BASE를 만들어 이것을 줄입니다.
-  > `serverCron`은 `growth = 현재 크기 × 100 / base 크기 − 100`이 `auto-aof-rewrite-percentage`(100) 이상이고 크기가 `auto-aof-rewrite-min-size`(64 MB) 이상이면 시작합니다.
-  > `BGREWRITEAOF`로 직접 시작할 수도 있습니다.
-- **Facts:**
-  - `auto-aof-rewrite-percentage`: 100; `auto-aof-rewrite-min-size`: 64mb
-  - Skipped while a `BACKUP` (8.10) is in progress or while rewrites are being limited after failures
-- **Event log:** `main → main · Manifest · growth 112% ≥ 100%, size 72 MB (E.G.) → rewrite · —`
-- **State (main):**
-  - before: `aof_base_size = 34 MB (E.G.)`, `aof_current_size = 72 MB (E.G.)`
-  - after: `rewrite = scheduled`
-- **Sources:** [redis.conf#L1591-L1592](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1591-L1592), [config.c#L3509](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3509), [config.c#L3616](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3616), [server.c#L1730-L1742](https://github.com/redis/redis/blob/8.10.3/src/server.c#L1730-L1742)
-
-#### S10 · `mutate` dir · fork 전에 새 INCR 파일부터 연다
-- **Subtitle:** 부모가 `appendonly.aof.2.incr.aof`를 열고 manifest를 동기적으로 갱신한 뒤 fork한다.
-- **Prose:**
-  > 7.0 이후 rewrite의 첫 단계는 부모가 새 INCR 파일을 여는 것입니다. 이후 모든 쓰기는 이 파일로 갑니다.
-  > manifest는 임시 파일에 쓰고 fsync한 뒤 rename으로 바꿉니다. 중간에 죽어도 manifest는 옛것 아니면 새것입니다.
-  > 그 다음에 fork합니다. 7.0 이전처럼 rewrite 중 쓰기를 메모리 buffer에 모았다가 다시 쓰는 일이 없습니다.
-- **Facts:**
-  - Order: `openNewIncrAofForAppend()` then `redisFork(CHILD_TYPE_AOF)`
-  - Manifest update: temp file → fsync → `rename()` → dir fsync
-  - Docs: the pre-7.0 rewrite buffer cost memory and wrote data "to disk twice"
-- **Event log:** `main → dir · Manifest · open appendonly.aof.2.incr.aof, persist manifest · —`
-- **State (dir: manifest):**
-  - before: `1.base.rdb b`, `1.incr.aof i`
-  - after: `1.base.rdb b`, `1.incr.aof i`, `2.incr.aof i`
-- **Sources:** [aof.c#L3218-L3245](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L3218-L3245), [aof.c#L1041-L1053](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1041-L1053), [aof.c#L576-L600](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L576-L600), [persistence.md#L52-L56](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L52-L56), [persistence.md#L146-L151](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L146-L151)
-
-#### S11 · `move` main → child · 자식은 메모리를 새 BASE로 쓴다
-- **Subtitle:** `aof-use-rdb-preamble yes`(기본)면 BASE는 RDB 형식. 명령을 나열하는 것보다 작고 빠르다.
-- **Prose:**
-  > 자식은 fork 시점 메모리를 `temp-rewriteaof-bg-<pid>.aof`에 씁니다. RDB와 같은 copy-on-write를 씁니다.
-  > preamble이 켜져 있으면 `rdbSaveRio()`로 RDB 형식을 쓰고, AUX `aof-base`를 1로 둡니다.
-  > 그동안 부모는 새 쓰기를 `2.incr.aof`에만 붙입니다.
-- **Token:** `call` · `fork → rewriteAppendOnlyFile`
-- **Facts:**
-  - `aof-use-rdb-preamble`: yes
-  - Temp file: `temp-rewriteaof-bg-<pid>.aof`
-  - Rewrite refused while a `BACKUP` is snapshotting (8.10)
-- **Event log:** `main → child · Disk · fork pid 48990 (E.G.), write RDB preamble · 21 MB (E.G.)`
-- **Sources:** [aof.c#L3139-L3163](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L3139-L3163), [aof.c#L3183-L3205](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L3183-L3205), [redis.conf#L1640](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1640), [persistence.md#L224-L225](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L224-L225)
-
-#### S12 · `mutate` dir · 끝나면 BASE 교체, 옛 파일은 history
-- **Subtitle:** temp → `2.base.rdb` rename, 옛 BASE와 rewrite 전 INCR는 history로 표시, manifest 교체, history 삭제.
-- **Prose:**
-  > 부모의 done handler는 임시 파일을 새 BASE 이름으로 rename합니다.
-  > 옛 BASE와 rewrite에 포함된 INCR 파일을 history(`type h`)로 바꾸고 manifest를 원자적으로 교체합니다.
-  > history 파일은 bio thread가 지웁니다. 이제 manifest는 `2.base.rdb`와 `2.incr.aof` 두 줄입니다.
-- **Facts:**
-  - Steps (aof.c comment): 4a new BASE name, 4b rename, 4c mark INCR as history, 4d persist manifest, 4e delete history via bio
-  - Manifest line format: `file <name> seq <n> type <b|h|i>` (8.x adds optional `startoffset`/`endoffset` on INCR lines)
-- **Event log:** `main → dir · Manifest · rename → appendonly.aof.2.base.rdb, history ×2 deleted · —`
-- **State (dir: manifest):**
-  - before: `1.base.rdb b`, `1.incr.aof i`, `2.incr.aof i`
-  - after: `2.base.rdb b`, `2.incr.aof i` (history `1.base.rdb`, `1.incr.aof` removed)
-- **Record:** D5.2
-- **Sources:** [aof.c#L3183-L3196](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L3183-L3196), [aof.c#L3847-L3946](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L3847-L3946), [aof.c#L689-L713](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L689-L713), [aof.c#L123-L135](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L123-L135), [aof-multi-part.tcl#L1344-L1348](https://github.com/redis/redis/blob/8.10.3/tests/integration/aof-multi-part.tcl#L1344-L1348)
-
-#### S13 · `move` dir → main · 재시작: manifest 순서대로 load
-- **Subtitle:** BASE(파일이 `REDIS`로 시작하면 RDB로) → INCR 순서로 읽는다. 마지막 파일 끝이 잘렸으면 잘라내고 load.
-- **Prose:**
-  > 시작할 때 manifest를 읽고 BASE부터 load합니다. 파일이 `REDIS`로 시작하면 RDB로, 아니면 명령으로 읽습니다.
-  > 그다음 INCR 파일의 명령을 재생합니다. `#`로 시작하는 annotation 줄은 건너뜁니다.
-  > 전원이 꺼져 마지막 명령이 잘렸으면 `aof-load-truncated yes`(기본)에 따라 마지막 파일만 잘라내고 계속합니다. 중간 파일이 잘렸으면 시작하지 않습니다.
-- **Token:** `data` · `manifest → base → incr`
-- **Facts:**
-  - `aof-load-truncated`: yes (only for the last file)
-  - `aof-load-corrupt-tail-max-size`: 0 (off; 8.x)
-  - Repair tool: `redis-check-aof --fix <file.manifest|file.aof>`
-- **Event log:** `dir → main · Disk · load 2.base.rdb (RDB preamble) + 2.incr.aof · 1.4 s (E.G.)`
-- **Sources:** [aof.c#L1853-L1864](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1853-L1864), [aof.c#L1914](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1914), [aof.c#L2041-L2069](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L2041-L2069), [aof.c#L2158-L2162](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L2158-L2162), [redis.conf#L1616-L1635](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1616-L1635), [redis-check-aof.c#L586](https://github.com/redis/redis/blob/8.10.3/src/redis-check-aof.c#L586), [persistence.md#L192-L220](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L192-L220)
-
-#### S14 · `mutate` main · RDB와 AOF를 같이 쓰라는 권고
-- **Subtitle:** docs 권고: PostgreSQL 수준의 안전을 원하면 둘 다. AOF만 쓰는 것은 권하지 않는다.
-- **Prose:**
-  > RDB는 백업과 빠른 재시작에 좋고, AOF는 손실 범위를 1초 안팎으로 줄입니다.
-  > docs는 둘을 함께 쓰라고 하고, AOF만 쓰는 것은 권하지 않습니다. RDB 스냅샷이 백업에 유리하기 때문입니다.
-  > 8.10부터는 MP-AOF 파일 묶음을 그대로 백업하는 `BACKUP` 명령도 있습니다.
-- **Facts:**
-  - Docs: "you should use both persistence methods" for PostgreSQL-like safety
-  - Docs: "There are many users using AOF alone, but we discourage it"
-  - `BACKUP`: since 8.10.0, built on MP-AOF
-- **Event log:** `main → main · Disk · CONFIG GET appendonly → yes, save → 3600 1 … · —`
-- **State (main: persistence config):**
-  - before: `appendonly = no`, `save = 3600 1 300 100 60 10000`
-  - after: `appendonly = yes`, `appendfsync = everysec`, `save = 3600 1 300 100 60 10000`
-- **Sources:** [persistence.md#L61-L69](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L61-L69), [persistence.md#L364-L368](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L364-L368), [00-RELEASENOTES#L82](https://github.com/redis/redis/blob/8.10.3/00-RELEASENOTES#L82)
-
-### Decoder records
-
-**D5.1 AOF bytes for `SET user:1 alice EX 60` (first write to db 0, `aof-timestamp-enabled yes`).** Layers: annotation · SELECT · SET.
-
-| Bytes (text) | Field | Value | E.G.? |
-|---|---|---|---|
-| `#TS:1793750400\r\n` (16 B) | annotation | Unix seconds; only with `aof-timestamp-enabled yes`, at most once per second | E.G. |
-| `*2\r\n$6\r\nSELECT\r\n$1\r\n0\r\n` (23 B) | SELECT | db 0, written because `aof_selected_db` was −1 | |
-| `*5\r\n` | array header | 5 args | |
-| `$3\r\nSET\r\n` | argv[0] | `SET` (case as sent by the client) | |
-| `$6\r\nuser:1\r\n` | argv[1] | key | |
-| `$5\r\nalice\r\n` | argv[2] | value | |
-| `$4\r\nPXAT\r\n` | argv[3] | was `EX` | |
-| `$13\r\n1793750460000\r\n` | argv[4] | 1793750400000 + 60000 | E.G. |
-
-SET frame: 66 B. Without the annotation the whole record is 89 B. Sources: [aof.c#L1609-L1648](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1609-L1648), [aof.c#L1674-L1684](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1674-L1684), [t_string.c#L193-L205](https://github.com/redis/redis/blob/8.10.3/src/t_string.c#L193-L205), [t_string.c#L256-L260](https://github.com/redis/redis/blob/8.10.3/src/t_string.c#L256-L260).
-
-**D5.2 Manifest after the rewrite.** Layers: one line per file.
-
-```
-file appendonly.aof.2.base.rdb seq 2 type b\n
-file appendonly.aof.2.incr.aof seq 2 type i startoffset 1048576\n
-```
-
-| Token | Meaning |
-|---|---|
-| `file <name>` | file in `appenddirname` |
-| `seq <n>` | sequence number; BASE and INCR count separately |
-| `type b` / `h` / `i` | base / history / incr |
-| `startoffset <n>` | replication offset when the INCR file was opened (8.x; value E.G.) |
-| `endoffset <n>` | written on graceful close (8.x) |
-
-Lines are ordered base, history, incr. Sources: [aof.c#L44-L71](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L44-L71), [aof.c#L123-L135](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L123-L135), [aof.c#L199-L231](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L199-L231), [aof.c#L1121-L1132](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1121-L1132).
-
-### Self-check
-
-1. **Q:** `appendfsync` 세 가지와 각각의 손실 범위는? **A:** `always`: 응답 전 fsync, 거의 손실 없음(가장 느림). `everysec`(기본): bio thread가 1초마다 fsync, 약 1초(디스크가 느리면 2초 이상). `no`: OS에 맡김, Linux 기준 약 30초.
-2. **Q:** `everysec`이 main thread를 막지 않는 방법과, 디스크가 느릴 때의 동작은? **A:** fsync를 bio thread에 넘긴다. 이전 fsync가 진행 중이면 write를 최대 2초 미루고, 넘으면 `aof_delayed_fsync`를 올리고 그냥 쓴다.
-3. **Q:** AOF에 `SET k v EX 60`은 어떻게 남나? 왜? **A:** `SET k v PXAT <절대 ms>`. 재생 시점과 관계없이 같은 만료 시각을 쓰기 위해서.
-4. **Q:** 7.0 이후 AOF rewrite가 rewrite buffer 없이 동작하는 방법은? **A:** fork 전에 부모가 새 INCR 파일을 열어 이후 쓰기를 거기에 붙이고, 자식은 새 BASE만 만든다. 끝나면 manifest를 원자적으로 바꿔 옛 BASE/INCR를 history로 돌린다.
-5. **Q:** 전원이 꺼져 AOF 끝이 잘렸다. 재시작하면? **A:** `aof-load-truncated yes`(기본)면 마지막 파일의 잘린 부분을 버리고 시작한다. 마지막이 아닌 파일이 잘렸으면 시작하지 않고 `redis-check-aof`로 고쳐야 한다.
-
----
-
-## Lesson 6. `replication`: replid와 offset으로 따라잡기, 복제와 PSYNC
-
-**Goal.** Follow a replica from its first connection (full sync over the 8.x rdb channel) through steady-state streaming, a short disconnect (partial resync from the backlog), and a failover (the promoted replica keeps the old ID as `replid2`), then show why a lock taken on the old master can be lost.
-
-**Interview questions it answers**
-- Redis 복제는 동기인가 비동기인가? `WAIT`을 쓰면 강한 일관성이 되나?
-- `PSYNC`가 partial resync를 할 수 있는 조건은? backlog 크기 기본값은?
-- full sync는 어떻게 동작하나? diskless replication이란?
-- failover 뒤 다른 replica가 full sync 없이 새 master를 따라갈 수 있는 이유는?
-- master-replica 구성에서 `SET NX` 분산 락이 안전하지 않은 이유는? Redlock은?
-
-**Nodes**
-
-| id | label | sublabel | kind | Illustration idea | First appears |
-|---|---|---|---|---|---|
-| `clientA` | client A | app | `client` | Laptop A | S9 |
-| `master` | master | `replid`, `master_repl_offset` | `framework` | Gear with a crown | S1 |
-| `backlog` | repl buffer | shared `replBufBlock`s + backlog | `framework` | Conveyor of blocks with refcount badges | S1 |
-| `replica1` | replica-1 | | `framework` | Gear with a mirror outline | S2 |
-| `replica2` | replica-2 | | `framework` | Second mirror gear | S12 |
-| `clientB` | client B | app | `client` | Laptop B | S14 |
-
-**Layer selector:** `Handshake` · `Full sync` · `Stream` (replication stream, ACK) · `Failover` · `Lock`.
-
-**Example ID.** `replid = 8de1787ba490483314a4d30f1c628bc5025eb761` (E.G., 40 hex chars).
-
-### Steps
-
-#### S1 · `mutate` master · replication ID와 offset
-- **Subtitle:** master는 데이터 이력마다 40자 hex `replid`를 갖고, 복제 스트림의 바이트 수를 `master_repl_offset`으로 센다.
-- **Prose:**
-  > replication ID는 "이 데이터셋의 이력"을 가리키는 랜덤 문자열입니다. offset은 그 이력에서 몇 바이트째인지입니다.
-  > (replid, offset) 한 쌍이 데이터셋의 정확한 버전을 가리킵니다. offset은 replica가 없어도 늘어납니다.
-  > 7.0 이후 backlog는 replica들과 같은 buffer block을 공유하는 view입니다. block마다 refcount가 있습니다.
-- **Facts:**
-  - `replid`: 40 hex chars (`CONFIG_RUN_ID_SIZE`)
-  - `repl-backlog-size`: 1mb; allocated only once a replica connects
-  - `repl-backlog-ttl`: 3600 s (replicas never free theirs)
-- **Event log:** `master → master · Stream · replid=8de1…b761 (E.G.) offset=1048576 (E.G.) · —`
-- **State (master):**
-  - before: `replid = 8de1…b761`, `replid2 = 0000…`, `master_repl_offset = 1048576`, `backlog = none`
-  - after: same, `backlog = 1 MB (created on first replica)`
-- **Sources:** [replication.md#L74-L83](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L74-L83), [server.h#L133](https://github.com/redis/redis/blob/8.10.3/src/server.h#L133), [server.h#L2423-L2426](https://github.com/redis/redis/blob/8.10.3/src/server.h#L2423-L2426), [server.h#L1175-L1221](https://github.com/redis/redis/blob/8.10.3/src/server.h#L1175-L1221), [config.c#L3585](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3585), [config.c#L3614](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3614), [redis.conf#L777-L792](https://github.com/redis/redis/blob/8.10.3/redis.conf#L777-L792)
-
-#### S2 · `move` replica1 → master · handshake: PING, REPLCONF
-- **Subtitle:** `PING` 후 AUTH, `REPLCONF listening-port`, `REPLCONF capa eof capa psync2 capa rdb-channel-repl`를 한 번에 보낸다.
-- **Prose:**
-  > `REPLICAOF host port` 후 replica는 상태 기계를 따라 master에 붙습니다. 먼저 `PING`으로 연결을 확인합니다.
-  > 다음 명령들은 pipeline으로 한 번에 보내고 답을 차례로 읽습니다. capa는 replica가 처리할 수 있는 기능입니다.
-  > `eof`는 diskless 전송의 EOF 표시, `psync2`는 replid를 바꾸는 `+CONTINUE`, `rdb-channel-repl`은 8.x의 두 번째 연결을 뜻합니다.
-- **Token:** `request` · `REPLCONF capa eof capa psync2 capa rdb-channel-repl`
-- **Facts:**
-  - States in order: `CONNECTING` → `RECEIVE_PING_REPLY` → `SEND_HANDSHAKE` → `RECEIVE_AUTH/PORT/IP/REQ/CLIENT_COMP/CAPA_REPLY` → `SEND_PSYNC` → `RECEIVE_PSYNC_REPLY` → `TRANSFER` → `CONNECTED`
-  - `rdb-channel-repl` capa is sent when `repl-rdb-channel` is on (hidden config, default yes)
-- **Event log:** `replica1 → master · Handshake · REPLCONF capa eof psync2 rdb-channel-repl · 92 B`
-- **Sources:** [server.h#L536-L552](https://github.com/redis/redis/blob/8.10.3/src/server.h#L536-L552), [replication.c#L3172-L3195](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L3172-L3195), [replication.c#L3212-L3274](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L3212-L3274), [config.c#L3417](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3417)
-
-#### S3 · `move` replica1 → master · `PSYNC ? -1`
-- **Subtitle:** 처음이면 알고 있는 이력이 없으니 `?`와 `-1`로 full sync를 요청한다.
-- **Prose:**
-  > replica는 cached master(예전 연결 정보)가 있으면 그 replid와 offset+1을 보냅니다.
-  > 처음 붙는 replica는 없으므로 `PSYNC ? -1`을 보냅니다. `?`는 "full resync를 원한다"는 뜻입니다.
-- **Token:** `request` · `PSYNC ? -1`
-- **Facts:**
-  - First sync: `PSYNC ? -1`
-  - Reconnect: `PSYNC <cached replid> <cached reploff + 1>`
-- **Event log:** `replica1 → master · Handshake · PSYNC ? -1 · 30 B`
-- **Record:** D6.1
-- **Sources:** [replication.c#L2965-L2983](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L2965-L2983), [replication.c#L1023](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L1023)
-
-#### S4 · `move` master → replica1 · `+RDBCHANNELSYNC`: RDB는 다른 연결로
-- **Subtitle:** 8.x 기본(diskless + rdb channel)에서는 `+FULLRESYNC` 대신 `+RDBCHANNELSYNC <client id>`.
-- **Prose:**
-  > partial resync가 불가능하고 replica가 rdb channel을 지원하면 master는 `+RDBCHANNELSYNC <client id>`로 답합니다.
-  > replica는 두 번째 연결(rdb channel)을 열어 `REPLCONF … rdb-only 1 rdb-channel 1 main-ch-client-id <id>`로 자신을 밝히고, 그 연결에서 full sync를 요청해 `+FULLRESYNC <replid> <offset>`을 받습니다.
-  > 이 경로는 diskless sync가 켜져 있을 때만 쓰입니다. 끄면 예전처럼 한 연결에서 `+FULLRESYNC`를 받습니다.
-- **Token:** `response` · `+RDBCHANNELSYNC 12`
-- **Facts:**
-  - Classic reply: `+FULLRESYNC <replid> <offset>`
-  - 8.x reply: `+RDBCHANNELSYNC <cid>`, requires `repl-rdb-channel yes` and `repl-diskless-sync yes`
-  - `repl-diskless-sync`: yes (default)
-- **Event log:** `master → replica1 · Full sync · +RDBCHANNELSYNC 12 (E.G.) · 20 B`
-- **Sources:** [replication.c#L1300-L1321](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L1300-L1321), [replication.c#L1502-L1504](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L1502-L1504), [replication.c#L3784-L3816](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L3784-L3816), [replication.c#L3890-L3901](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L3890-L3901), [replication.c#L992-L993](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L992-L993), [redis.conf#L679](https://github.com/redis/redis/blob/8.10.3/redis.conf#L679)
-
-#### S5 · `mutate` master · 5초 기다렸다 fork, RDB를 소켓으로 바로
-- **Subtitle:** `repl-diskless-sync-delay 5` — 다른 replica도 함께 받도록 기다린 뒤 fork해 RDB를 디스크 없이 보낸다.
-- **Prose:**
-  > master는 다른 replica가 붙을 시간을 주려고 기본 5초 기다립니다. 그다음 fork하고, 자식이 RDB를 rdb channel로 바로 씁니다.
-  > fork 전에 main channel을 backlog의 스냅샷 끝 offset에 붙여 둡니다. RDB 이후의 쓰기를 빠짐없이 보내기 위해서입니다.
-  > 디스크 없이 보내므로 크기를 미리 모릅니다. 그래서 `$EOF:<40자 hex>`로 시작하고 같은 40자로 끝냅니다.
-- **Facts:**
-  - `repl-diskless-sync-delay`: 5 s; `repl-diskless-sync-max-replicas`: 0 (no early start)
-  - EOF marker: `$EOF:<40 random hex>\r\n` … same 40 bytes at the end (`RDB_EOF_MARK_SIZE` 40)
-  - Log: `Starting BGSAVE for SYNC with target: …`
-- **Event log:** `master → replica1 · Full sync · fork, RDB over rdb channel · 85 MB (E.G.)`
-- **State (master: replica-1 state):**
-  - before: `main channel = WAIT_RDB_CHANNEL`
-  - after: `main channel = attached to backlog at offset 1048576 (E.G.)`, `rdb channel = streaming RDB`
-- **Record:** D6.2
-- **Sources:** [redis.conf#L689-L697](https://github.com/redis/redis/blob/8.10.3/redis.conf#L689-L697), [config.c#L3521](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3521), [replication.c#L1133-L1138](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L1133-L1138), [rdb.c#L2083-L2098](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L2083-L2098), [server.h#L134](https://github.com/redis/redis/blob/8.10.3/src/server.h#L134), [replication.c#L3784-L3816](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L3784-L3816), [replication.md#L152-L154](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L152-L154)
-
-#### S6 · `mutate` replica1 · RDB를 받는 동안 새 쓰기는 replica가 쌓아 둔다
-- **Subtitle:** main channel로 오는 복제 스트림을 replica 쪽 buffer에 모았다가, RDB load 후 적용한다.
-- **Prose:**
-  > rdb channel 방식에서는 RDB와 그 뒤의 쓰기가 두 연결로 동시에 옵니다. 쓰기는 replica의 로컬 buffer에 쌓입니다.
-  > 예전 방식에서는 이 buffer가 master 쪽에 있었습니다. 지금은 master 부담이 replica로 옮겨졌습니다.
-  > RDB load가 끝나면 rdb channel을 닫고, 쌓아 둔 스트림을 적용하면 sync가 끝납니다.
-- **Facts:**
-  - `replica-full-sync-buffer-limit`: 0 = inherit the replica `client-output-buffer-limit` hard limit
-  - `repl-diskless-load`: `disabled` (the replica saves the RDB to disk, then loads it)
-- **Event log:** `replica1 → replica1 · Full sync · load RDB 85 MB, apply buffered stream 2.3 MB (E.G.) · 4.1 s (E.G.)`
-- **State (replica1):**
-  - before: `state = TRANSFER`, `local buffer = 0`
-  - after: `state = CONNECTED`, `master_replid = 8de1…b761`, `offset = 1048576 + applied stream`
-- **Sources:** [replication.c#L3784-L3816](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L3784-L3816), [redis.conf#L718-L732](https://github.com/redis/redis/blob/8.10.3/redis.conf#L718-L732), [redis.conf#L796-L810](https://github.com/redis/redis/blob/8.10.3/redis.conf#L796-L810), [config.c#L3586](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3586)
-
-#### S7 · `move` master → replica1 · 평상시: 명령을 RESP 그대로 흘려보낸다
-- **Subtitle:** 쓰기 명령을 공유 replication buffer에 붙이고, 그 바이트 수만큼 offset이 늘어난다.
-- **Prose:**
-  > master는 전파할 명령을 `replicationFeedSlaves()`로 RESP 형식 그대로 공유 buffer에 씁니다. DB가 바뀌면 `SELECT`를 먼저 넣습니다.
-  > `master_repl_offset`은 쓴 바이트 수만큼 늘어납니다. 같은 block을 backlog와 모든 replica가 refcount로 공유합니다.
-  > master는 replica의 처리를 기다리지 않고 바로 client에게 답합니다(비동기).
-- **Token:** `data` · `SET user:1 alice` (36 B)
-- **Facts:**
-  - `master_repl_offset += total bytes written`
-  - Docs: "the master does not wait every time for a command to be processed by the replicas"
-- **Event log:** `master → replica1 · Stream · *3 SET user:1 alice · 36 B`
-- **State (master):**
-  - before: `master_repl_offset = 1048576`
-  - after: `master_repl_offset = 1048612`
-- **Sources:** [replication.c#L596](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L596), [replication.c#L639-L733](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L639-L733), [replication.md#L25-L30](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L25-L30)
-
-#### S8 · `move` replica1 → master · 1초마다 `REPLCONF ACK <offset>`
-- **Subtitle:** replica는 처리한 offset을 매초 알리고, master는 10초마다 PING을 보낸다.
-- **Prose:**
-  > replica는 `replicationCron`(1초 주기)마다 `REPLCONF ACK <offset>`을 보냅니다. AOF fsync offset 추적이 필요하면 `FACK`도 붙습니다.
-  > master는 스트림이 조용하면 `repl-ping-replica-period`(10초)마다 PING을 보냅니다.
-  > 둘 다 `repl-timeout`(60초) 동안 아무것도 받지 못하면 연결을 끊습니다.
-- **Token:** `data` · `REPLCONF ACK 1048612`
-- **Facts:**
-  - ACK period: 1 s (`run_with_period(1000) replicationCron()`)
-  - `repl-ping-replica-period`: 10 s; `repl-timeout`: 60 s
-  - `min-replicas-to-write`: 0 (off); `min-replicas-max-lag`: 10 s
-- **Event log:** `replica1 → master · Stream · REPLCONF ACK 1048612 · 40 B`
-- **Sources:** [replication.c#L193-L197](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L193-L197), [replication.c#L4622-L4628](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L4622-L4628), [server.c#L1778-L1780](https://github.com/redis/redis/blob/8.10.3/src/server.c#L1778-L1780), [config.c#L3531-L3532](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3531-L3532), [config.c#L3538-L3539](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3538-L3539), [replication.md#L251](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L251)
-
-#### S9 · `move` replica1 → master · 끊겼다 다시 붙으면 `PSYNC <replid> <offset+1>`
-- **Subtitle:** 잠깐의 네트워크 단절. replica는 마지막으로 받은 다음 바이트부터 달라고 한다.
-- **Prose:**
-  > 연결이 끊긴 동안에도 master는 쓰기를 받고 offset을 올립니다. 그 바이트들은 backlog에 남아 있습니다.
-  > 다시 붙은 replica는 기억해 둔 master의 replid와 offset+1로 `PSYNC`를 보냅니다.
-- **Token:** `request` · `PSYNC 8de1…b761 1048613`
-- **Facts:**
-  - Request: `PSYNC <replid> <reploff+1>`
-  - Missed bytes: `master_repl_offset − replica offset` = 1388 B (E.G.)
-- **Event log:** `replica1 → master · Handshake · PSYNC 8de1…b761 1048613 · 75 B`
-- **Sources:** [replication.c#L2965-L2983](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L2965-L2983), [replication.md#L85-L90](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L85-L90)
-
-#### S10 · `mutate` backlog · backlog 안이면 `+CONTINUE`, 밖이면 full sync
-- **Subtitle:** replid가 같고, 요청 offset이 backlog 범위 안이면 빠진 바이트만 보낸다.
-- **Prose:**
-  > master는 두 가지를 봅니다. replid가 자신의 `replid`와 같은가(또는 `replid2`이고 offset이 `second_replid_offset` 이하인가). 그리고 offset이 backlog 범위 안인가.
-  > 둘 다 맞으면 `+CONTINUE <replid>`로 답하고 backlog에서 그 offset부터 보냅니다.
-  > 끊긴 동안 1 MB 넘게 쓰였으면 backlog에서 밀려났으므로 full sync입니다. 쓰기가 많은 서비스는 `repl-backlog-size`를 늘립니다.
-- **Facts:**
-  - Range check: `backlog->offset ≤ psync_offset ≤ backlog->offset + histlen`
-  - Reply: `+CONTINUE <replid>` (PSYNC2), `+CONTINUE` for old replicas
-- **Event log:** `master → replica1 · Stream · +CONTINUE 8de1…b761, send 1388 B from backlog (E.G.) · 52 B + 1388 B`
-- **State (backlog):**
-  - before: `backlog offset = 1424 (E.G.)`, `histlen = 1048576` (covers 1424…1050000), `request = 1048613` → in range
-  - after: `replica1 = online`, `sent from 1048613 to 1050000 (E.G.)`
-- **Record:** D6.1
-- **Sources:** [replication.c#L1019-L1075](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L1019-L1075), [server.h#L1424-L1434](https://github.com/redis/redis/blob/8.10.3/src/server.h#L1424-L1434), [replication.md#L85-L90](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L85-L90)
-
-#### S11 · `mutate` replica1 · failover: replica가 master가 되며 ID를 바꾼다
-- **Subtitle:** 승격된 replica는 옛 replid를 `replid2`로 보관하고 새 replid를 만든다.
-- **Prose:**
-  > master가 죽고 replica-1이 승격되면(Sentinel, Cluster, 또는 `REPLICAOF NO ONE`), `shiftReplicationId()`가 옛 ID를 `replid2`로 옮깁니다.
-  > `second_replid_offset`은 그때 offset+1이고, 그다음 새 랜덤 replid를 만듭니다.
-  > 새 ID를 쓰는 이유는 네트워크 분할로 옛 master가 아직 살아 있을 수 있기 때문입니다. 같은 ID로 두 이력이 갈라지면 안 됩니다.
-- **Facts:**
-  - `replid2 = old replid`, `second_replid_offset = master_repl_offset + 1`
-  - Called from `replicationUnsetMaster()`
-- **Event log:** `replica1 → replica1 · Failover · shiftReplicationId, new replid c0ff…ee01 (E.G.) · —`
-- **State (replica1):**
-  - before: `role = replica`, `replid = 8de1…b761`, `replid2 = 0000…`, `offset = 1050000`
-  - after: `role = master`, `replid = c0ff…ee01`, `replid2 = 8de1…b761`, `second_replid_offset = 1050001`
-- **Sources:** [replication.c#L2142-L2151](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L2142-L2151), [replication.c#L3691-L3700](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L3691-L3700), [replication.md#L126-L144](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L126-L144)
-
-#### S12 · `move` replica2 → replica1 · 다른 replica는 옛 ID로 partial resync
-- **Subtitle:** replica-2가 옛 replid로 `PSYNC`해도 새 master가 `replid2`로 알아보고 `+CONTINUE <새 ID>`로 답한다.
-- **Prose:**
-  > replica-2는 옛 master의 replid로 `PSYNC 8de1…b761 1049800`을 보냅니다.
-  > 새 master는 이것이 자신의 `replid2`이고 offset이 `second_replid_offset` 이하이므로 받아들입니다.
-  > `+CONTINUE c0ff…ee01`로 새 ID를 알려 주면, replica-2는 옛 ID를 자기 `replid2`로 옮기고 계속 따라갑니다. full sync가 필요 없습니다.
-- **Token:** `request` · `PSYNC 8de1…b761 1049800`
-- **Facts:**
-  - Accept if `replid == replid2` and `offset ≤ second_replid_offset`
-  - Replica on new ID: `replid2 = old`, `second_replid_offset = master_repl_offset + 1`, then disconnects its own sub-replicas
-- **Event log:** `replica2 → replica1 · Handshake · PSYNC 8de1…b761 1049800 → +CONTINUE c0ff…ee01 (E.G.) · 75 B / 52 B`
-- **Sources:** [replication.c#L1019-L1021](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L1019-L1021), [replication.c#L3064-L3089](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L3064-L3089), [replication.md#L126-L136](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L126-L136)
-
-#### S13 · `move` clientA → master · 비동기라서 생기는 틈: lock A
-- **Subtitle:** client A가 master에서 lock을 얻고 `+OK`를 받았다. 이 쓰기는 아직 replica에 가지 않았다.
-- **Prose:**
-  > client A가 `SET lock:order:9 <tokenA> NX PX 30000`을 보내고 `+OK`를 받습니다.
-  > master는 replica를 기다리지 않고 답하므로, 이 순간 lock은 master에만 있습니다.
-  > 바로 이때 master가 죽으면 이 쓰기는 replica에 전달되지 않습니다.
-- **Token:** `request` · `SET lock:order:9 tokenA NX PX 30000`
-- **Facts:**
-  - Docs: "Redis replication is asynchronous"
-  - Docs (Sentinel): Redis "does not guarantee that acknowledged writes are retained during failures"
-- **Event log:** `clientA → master · RESP2 · SET lock:order:9 tokenA NX PX 30000 → +OK · —`
-- **State (master / replica1: `lock:order:9`):**
-  - before: `master: —`, `replica1: —`
-  - after: `master: tokenA`, `replica1: — (not yet replicated)`
-- **Sources:** [distributed-locks.md#L80-L89](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/clients/patterns/distributed-locks.md#L80-L89), [sentinel.md#L87](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/sentinel.md#L87)
-
-#### S14 · `move` clientB → replica1 · 승격된 replica에서 lock B도 성공한다
-- **Subtitle:** master가 죽고 replica-1이 승격됐다. lock 키가 없으니 client B도 같은 lock을 얻는다.
-- **Prose:**
-  > master가 lock을 복제하기 전에 죽었고, replica-1이 새 master가 되었습니다.
-  > client B가 같은 `SET … NX`를 보내면 키가 없으므로 성공합니다. 이제 A와 B가 동시에 lock을 가졌다고 믿습니다.
-  > docs는 이를 "SAFETY VIOLATION"이라고 부릅니다. 복제가 비동기인 한 master-replica failover로는 상호 배제를 보장할 수 없습니다.
+  > A가 master에서 lock을 얻고 `+OK`를 받았습니다. 복제는 비동기라 이 쓰기가 replica에 가기 전에 master가 죽을 수 있습니다.
+  > replica가 승격되면 lock 키가 없으므로 B의 `SET NX`도 성공합니다.
 - **Token:** `request` · `SET lock:order:9 tokenB NX PX 30000`
 - **Facts:**
-  - Docs sequence: A acquires on master → master crashes before replicating → replica promoted → B acquires
-- **Event log:** `clientB → replica1 · RESP2 · SET lock:order:9 tokenB NX PX 30000 → +OK · —`
-- **State (replica1 as master: `lock:order:9`):**
-  - before: `—`
-  - after: `tokenB` (client A still believes it holds the lock)
-- **Sources:** [distributed-locks.md#L80-L89](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/clients/patterns/distributed-locks.md#L80-L89), [cluster-spec.md#L84](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L84)
+  - Docs: "we can't implement our safety property of mutual exclusion, because Redis replication is asynchronous"
+  - Sequence: A locks on master → master crashes before replicating → replica promoted → B locks
+- **Event log:** `client → peer1 · RESP2 · SET lock:order:9 tokenB NX PX 30000 → +OK · —`
+- **Sources:** [distributed-locks.md#L80-L89](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/clients/patterns/distributed-locks.md#L80-L89)
 
-#### S15 · `mutate` master · `WAIT`, `WAITAOF`, Redlock, fencing token
-- **Subtitle:** `WAIT`은 틈을 줄일 뿐 없애지 않는다. Redlock은 독립 master 5개의 과반, 그래도 fencing token을 권한다.
+#### S10 · `mutate` peer1 · 두 client가 같은 lock을 가졌다 (side path)
+- **Subtitle:** 정확성이 중요한 lock이면 fencing token으로 자원 쪽에서 막아야 한다.
 - **Prose:**
-  > `WAIT 1 100`은 replica 1개가 ACK할 때까지(최대 100 ms) 기다리고 ACK한 수를 돌려줍니다. 하지만 docs는 이것이 Redis를 strongly consistent store로 만들지 않는다고 말합니다.
-  > Redlock은 복제 없이 독립된 master N개(예: 5)에 차례로 lock을 걸어 과반(3) 이상, 그리고 유효 시간 안에 성공해야 lock을 얻은 것으로 봅니다.
-  > 그래도 TTL은 monotonic clock이 아니라서 시계가 바뀌면 깨질 수 있습니다. docs는 fencing token을 쓰라고 권합니다.
+  > A와 B가 모두 lock을 가졌다고 믿습니다. 캐시 재계산이라면 DB 읽기가 한 번 더 늘 뿐이지만, 정확성이 필요한 작업이면 데이터가 깨집니다.
+  > `WAIT`은 틈을 줄일 뿐이고, Redlock(독립 master 5개 과반)도 docs가 fencing token을 함께 권합니다.
 - **Facts:**
-  - `WAIT numreplicas timeout` (since 3.0.0) → integer; `WAITAOF numlocal numreplicas timeout` (since 7.2.0) → [local, replicas]
-  - Redlock: N = 5, majority 3, validity = TTL − elapsed − clock drift
-  - `min-replicas-to-write` default 0 (off)
-- **Event log:** `clientA → master · RESP2 · WAIT 1 100 → :1 · 30 B`
-- **State (lock safety options):**
-  - before: `SET NX on master only`
-  - after: `+ WAIT (narrower window)`, `Redlock (5 independent masters)`, `fencing token (checked by the resource)`
-- **Sources:** [wait.md#L36-L83](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/wait.md#L36-L83), [waitaof.md#L39-L42](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/waitaof.md#L39-L42), [waitaof.md#L95-L96](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/waitaof.md#L95-L96), [waitaof.md#L139-L141](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/waitaof.md#L139-L141), [replication.md#L32-L37](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L32-L37), [distributed-locks.md#L130-L162](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/clients/patterns/distributed-locks.md#L130-L162), [distributed-locks.md#L232-L240](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/clients/patterns/distributed-locks.md#L232-L240)
+  - `WAIT numreplicas timeout` "does not make Redis a strongly consistent store"
+  - Redlock: N = 5 independent masters, majority 3, validity = TTL − elapsed − clock drift
+  - Docs: "You should implement fencing tokens"
+- **Event log:** `peer1 → peer1 · Failover · lock:order:9 held by A (believes) and B · —`
+- **State (peer1: replica):**
+  - before: `role` = replica; `lock:order:9` = —
+  - after: `role` = master (promoted); `lock:order:9` = tokenB (A also believes it holds it)
+- **Sources:** [wait.md#L79-L83](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/wait.md#L79-L83), [distributed-locks.md#L130-L162](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/clients/patterns/distributed-locks.md#L130-L162), [distributed-locks.md#L232-L240](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/clients/patterns/distributed-locks.md#L232-L240)
+
+### Replay
+
+S1 → S2 → S3, then S5 → S6 → S7 → S8: client → main (miss) → db → mem (fill); expiry → db rush → mem (lock) → mem (fill) → mem (release).
 
 ### Decoder records
 
-**D6.1 PSYNC exchange (bytes).** Layers: request · reply.
+**D5.1 · step S6 · `wire` · lock acquire request.**
 
-| Frame | Bytes (text) | Size | Fields |
-|---|---|---|---|
-| first sync request | `*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n` | 30 B | replid `?`, offset `-1` |
-| classic full sync reply | `+FULLRESYNC 8de1787ba490483314a4d30f1c628bc5025eb761 1048576\r\n` | 62 B | replid (40 hex, E.G.), offset (E.G.) |
-| 8.x rdb-channel reply | `+RDBCHANNELSYNC 12\r\n` | 20 B | main-channel client id (E.G.) |
-| reconnect request | `*3\r\n$5\r\nPSYNC\r\n$40\r\n8de1…b761\r\n$7\r\n1048613\r\n` | 75 B | cached replid, cached offset + 1 (E.G.) |
-| partial resync reply | `+CONTINUE 8de1787ba490483314a4d30f1c628bc5025eb761\r\n` | 52 B | current replid (PSYNC2 replicas) |
-| ACK | `*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$7\r\n1048612\r\n` | 40 B | processed offset (E.G.) |
-
-Sources: [replication.c#L992-L993](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L992-L993), [replication.c#L1071-L1075](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L1071-L1075), [replication.c#L1321](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L1321), [replication.c#L2965-L2983](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L2965-L2983), [replication.c#L4622-L4628](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L4622-L4628).
-
-**D6.2 Diskless RDB payload framing.** Layers: EOF prefix · RDB bytes · EOF suffix.
-
-| Part | Bytes | Meaning |
+| Bytes (text) | Field | Meaning |
 |---|---|---|
-| prefix | `$EOF:` + 40 hex chars + `\r\n` (47 B) | announces an unknown-length transfer; the 40 chars are random (E.G.) |
-| body | `REDIS0015 FA … FF <CRC64>` | a normal RDB file (lesson 4, D4.1 and D4.2) |
-| suffix | the same 40 chars | the replica stops reading when it sees them |
+| `*6\r\n` | array header | 6 args |
+| `$3\r\nSET\r\n` | command | |
+| `$14\r\nlock:product:7\r\n` | key | one lock key per resource |
+| `$32\r\n<token>\r\n` | value | random per client and request (E.G.) |
+| `$2\r\nNX\r\n` | condition | set only if the key does not exist |
+| `$2\r\nPX\r\n` `$5\r\n30000\r\n` | expiry | lock auto-releases after 30 s |
 
-Source: [rdb.c#L2083-L2098](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L2083-L2098).
+Sources: [distributed-locks.md#L99-L102](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/clients/patterns/distributed-locks.md#L99-L102), [set.md#L133-L135](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/set.md#L133-L135).
 
 ### Self-check
 
-1. **Q:** (replid, offset)가 뜻하는 것은? **A:** 특정 데이터 이력(replid)에서 몇 바이트까지 적용했는지. 이 쌍이 데이터셋의 정확한 버전을 가리킨다.
-2. **Q:** partial resync가 되는 두 조건은? **A:** 요청 replid가 master의 replid와 같거나(또는 replid2이고 offset ≤ second_replid_offset), 요청 offset이 backlog 범위 안일 것. 기본 backlog는 1 MB.
-3. **Q:** 8.x 기본 설정에서 full sync는 어떻게 다른가? **A:** master가 `+RDBCHANNELSYNC`로 답하면 replica가 두 번째 연결을 열고, fork 자식이 그 연결로 RDB를 diskless로 보낸다. 그동안 새 쓰기는 main 연결로 와서 replica 쪽 buffer에 쌓인다.
-4. **Q:** failover 후 다른 replica가 full sync 없이 새 master를 따라가는 원리는? **A:** 승격된 replica가 옛 replid를 replid2로 보관하므로, 옛 ID로 온 PSYNC도 `+CONTINUE <새 ID>`로 받아 준다.
-5. **Q:** master-replica에서 `SET NX PX` lock이 깨지는 순서는? **A:** A가 master에서 lock 획득 → 복제 전에 master 장애 → replica 승격 → B가 같은 lock 획득. 복제가 비동기이기 때문.
-6. **Q:** `WAIT`을 쓰면 해결되나? **A:** 아니다. 틈을 줄일 뿐이고 docs도 "does not make Redis a strongly consistent store"라고 한다. failover 시 여전히 쓰기를 잃을 수 있다.
+1. **Q:** cache-aside에서 DB를 바꿀 때 캐시는 어떻게 하나? **A:** DB에 쓰고 캐시 키를 `DEL`한다. 오래된 값이 남는 시간은 TTL이 상한이다.
+2. **Q:** stampede를 lock으로 막는 흐름은? **A:** miss한 instance가 `SET lock NX PX`를 시도해 하나만 DB를 읽고 채운다. 나머지는 캐시를 다시 읽는다.
+3. **Q:** lock 해제를 그냥 `DEL`로 하면 안 되는 이유는? **A:** TTL이 지나 다른 client가 잡은 lock을 지울 수 있다. token을 비교하고 지우는 Lua script를 쓴다.
+4. **Q:** master-replica에서 lock이 깨지는 순서는? **A:** A가 master에서 획득 → 복제 전 master 장애 → replica 승격 → B가 같은 lock 획득.
 
 ---
 
-## Lesson 7. `cluster`: 16384개 slot과 MOVED/ASK, 그리고 failover
+## Lesson 6. `atomicity`: 다른 명령이 끼어들지 못하게
 
-**Goal.** Route one key to its slot and node, follow a `MOVED` and an `ASK` redirect during resharding, then watch the cluster bus detect a dead master and elect its replica.
+**Goal.** See how `MULTI`/`EXEC` queues commands and runs them together, how `WATCH` aborts on a conflict, what "no rollback" means, and when a Lua script blocks the whole server.
 
-**Interview questions it answers**
-- Redis Cluster는 키를 어떻게 나누나? 왜 consistent hashing이 아니라 hash slot인가? hash tag는?
-- `MOVED`와 `ASK`의 차이는? client는 각각 어떻게 반응해야 하나?
-- master 장애를 누가 어떻게 판단하나(PFAIL → FAIL)? replica는 어떻게 선출되나?
-- Redis Cluster에서 확인 응답을 받은 쓰기도 잃을 수 있는 경우는?
+**Critical path.** `WATCH` → `MULTI` → commands queued → `EXEC` runs all at once, or returns null if a watched key changed.
 
-**Scenario.** Three masters with slot ranges A `0–5460`, B `5461–10922`, C `10923–16383` (E.G.; ranges depend on how the cluster was created), each with one replica. Only A's replica `A1` is drawn.
+**Interview and incident questions**
+- Redis transaction은 원자적인가? rollback은?
+- `WATCH`로 어떻게 check-and-set을 하나?
+- Lua script가 오래 돌면 무슨 일이? `-BUSY`는?
+- 재시작이나 failover 뒤 `EVALSHA`가 `-NOSCRIPT`를 내는 이유는?
 
-**Nodes**
+**Overview (one line).** 8.4부터 `SET … IFEQ` 같은 단일 명령 compare-and-set도 있다(transactions docs).
 
-| id | label | sublabel | kind | Illustration idea | First appears |
-|---|---|---|---|---|---|
-| `client` | cluster client | slot map cache | `client` | Laptop with a small slot-map table | S1 |
-| `A` | master A | slots 0–5460 (E.G.) | `framework` | Server tower with a ring segment | S2 |
-| `B` | master B | slots 5461–10922 (E.G.) | `framework` | Server tower, second ring segment | S2 |
-| `C` | master C | slots 10923–16383 (E.G.) | `framework` | Server tower, third ring segment | S9 |
-| `A1` | replica A1 | replica of A | `framework` | Smaller tower with a mirror outline | S11 |
-| `bus` | cluster bus | port + 10000 | `container` | Dashed mesh between towers | S8 |
+**Nodes:** `client` (app), `main`, `mem` (db0).
 
-**Layer selector:** `Routing` (slot, redirects) · `Resharding` · `Bus` (gossip, failure detection) · `Failover`.
+**State panels**
+
+| Node | Panel | Initial rows |
+|---|---|---|
+| `main` | client 7 transaction | `mode` = normal; `queue` = []; `watched` = []; `결과` = — |
+| `mem` | db0 | `balance:A` = 500; `balance:B` = 0 |
+
+**Layer selector:** `Command` · `Transaction` · `Script`.
 
 ### Steps
 
-#### S1 · `mutate` client · 키 → slot: CRC16 mod 16384
-- **Subtitle:** `user:1000` → CRC16(XMODEM) = 0x4671 → 0x4671 & 0x3FFF = slot 1649.
+#### S1 · `mutate` main · `WATCH balance:A`
+- **Subtitle:** 이 키가 `EXEC` 전에 바뀌면 transaction 전체를 취소하라고 표시한다.
 - **Prose:**
-  > Redis Cluster는 키 공간을 16384개 hash slot으로 나눕니다. slot = `CRC16(key) mod 16384`이고, 코드에서는 하위 14비트(`& 0x3FFF`)를 씁니다.
-  > CRC16은 XMODEM 변형(다항식 0x1021)입니다. `"123456789"`의 결과는 0x31C3입니다.
-  > 키에 `{…}`가 있으면 처음 `{`와 그 뒤 첫 `}` 사이만 hash합니다. 그래서 `{user:1000}.following`도 slot 1649이고, 같은 slot의 키끼리만 multi-key 명령을 쓸 수 있습니다.
+  > `WATCH`는 낙관적 lock입니다. 키를 지켜보다가 `EXEC` 전에 누군가 바꾸면 transaction을 실행하지 않습니다.
+  > 앱은 `WATCH` → 값 읽기 → 계산 → `MULTI`/`EXEC` 순서로 쓰고, 실패하면 처음부터 다시 합니다.
 - **Facts:**
-  - `HASH_SLOT = CRC16(key) mod 16384`; 14 of 16 CRC bits are used
-  - `user:1000` → slot 1649; `{user:1000}.following` → 1649 (computed with XMODEM CRC16, checked against the spec's test vector and the `CLUSTER KEYSLOT` doc examples)
-  - Empty tag `foo{}{bar}` hashes the whole key
-- **Event log:** `client → client · Routing · keyHashSlot(user:1000) = 1649 · —`
-- **State (client: slot map, stale):**
-  - before: `0–5460 → B (stale)`, `5461–10922 → B`, `10923–16383 → C`
-  - after: same (lookup only): `slot 1649 → B`
-- **Sources:** [cluster-spec.md#L160-L174](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L160-L174), [cluster-spec.md#L194-L207](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L194-L207), [cluster.h#L22-L23](https://github.com/redis/redis/blob/8.10.3/src/cluster.h#L22-L23), [cluster.h#L54-L79](https://github.com/redis/redis/blob/8.10.3/src/cluster.h#L54-L79), [crc16.c#L34-L44](https://github.com/redis/redis/blob/8.10.3/src/crc16.c#L34-L44), [cluster-keyslot.md#L53-L56](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/cluster-keyslot.md#L53-L56)
+  - Docs: "This form of locking is called _optimistic locking_"
+  - Changes by other clients, expiry, and eviction all abort it
+- **Event log:** `client → main · RESP2 · WATCH balance:A → +OK · —`
+- **State (main: client 7 transaction):**
+  - before: `mode` = normal; `queue` = []; `watched` = []; `결과` = —
+  - after: `mode` = normal; `queue` = []; `watched` = [balance:A]; `결과` = —
+- **Sources:** [transactions.md#L181-L184](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/using-commands/transactions.md#L181-L184), [transactions.md#L191-L220](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/using-commands/transactions.md#L191-L220), [transactions.md#L233-L241](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/using-commands/transactions.md#L233-L241)
 
-#### S2 · `move` client → B · 잘못된 node로 보냈다
-- **Subtitle:** client의 slot map이 오래되어 slot 1649를 B로 알고 있다.
+#### S2 · `move` client → main · `MULTI` 다음 명령들
+- **Subtitle:** `MULTI`, `DECRBY balance:A 100`, `INCRBY balance:B 100` — 각각 `+QUEUED`.
 - **Prose:**
-  > client는 캐시한 slot map에 따라 `GET user:1000`을 B에 보냅니다.
-  > B는 `processCommand()`의 cluster 검사에서 `getNodeByQuery()`로 이 slot의 주인이 A임을 압니다.
-- **Token:** `request` · `GET user:1000`
+  > `MULTI` 뒤의 명령은 실행되지 않고 큐에 쌓입니다. 서버는 명령마다 `+QUEUED`로 답합니다.
+- **Token:** `request` · `MULTI; DECRBY balance:A 100; INCRBY balance:B 100`
 - **Facts:**
-  - Redirect decision: `getNodeByQuery()`
-  - Cluster check runs in `processCommand` before `call()`
-- **Event log:** `client → B · RESP2 · GET user:1000 · 28 B`
-- **Sources:** [server.c#L4603-L4622](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4603-L4622), [cluster.c#L1236-L1488](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1236-L1488)
+  - Reply to each queued command: `+QUEUED`
+  - Queued commands do not trigger `WATCH`
+- **Event log:** `client → main · RESP2 · MULTI + 2 commands → +OK +QUEUED +QUEUED · —`
+- **Sources:** [transactions.md#L56-L59](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/using-commands/transactions.md#L56-L59), [server.c#L4831-L4841](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4831-L4841), [transactions.md#L242-L243](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/using-commands/transactions.md#L242-L243)
 
-#### S3 · `move` B → client · `-MOVED 1649 10.0.0.1:6379`
-- **Subtitle:** "이 slot은 영구히 저 node에 있다." client는 slot map을 고친다.
+#### S3 · `mutate` main · 큐에 쌓인다
+- **Subtitle:** 아직 아무 키도 바뀌지 않았다.
 - **Prose:**
-  > B는 `-MOVED <slot> <endpoint>:<port>`로 답합니다. MOVED는 slot의 주인이 바뀌었다는 뜻입니다.
-  > client는 그 slot을 새 node로 기록하고, 가능하면 `CLUSTER SHARDS`로 전체 map을 새로 받습니다. `CLUSTER SLOTS`는 7.0부터 deprecated입니다.
-  > endpoint는 `cluster-preferred-endpoint-type`(기본 ip)에 따라 IP, hostname, 또는 빈 값입니다.
-- **Token:** `response` · `-MOVED 1649 10.0.0.1:6379`
+  > 명령은 client의 큐에만 있습니다. 이 사이에 다른 client의 명령은 평소처럼 실행됩니다.
 - **Facts:**
-  - Format: `-MOVED <slot> <endpoint>:<port>` (same printf as ASK)
-  - Client action: update the slot → node mapping
-  - `cluster-preferred-endpoint-type`: ip
-- **Event log:** `B → client · RESP2 · -MOVED 1649 10.0.0.1:6379 (address E.G.) · 27 B`
-- **State (client: slot map):**
-  - before: `1649 → B`
-  - after: `0–5460 → A` (after `CLUSTER SHARDS`)
-- **Record:** D7.1
-- **Sources:** [cluster.c#L1512-L1520](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1512-L1520), [cluster-spec.md#L385-L410](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L385-L410), [cluster-shards.md#L26](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/cluster-shards.md#L26), [cluster-slots.md#L19](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/cluster-slots.md#L19), [redis.conf#L1960](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1960)
+  - Nothing runs until `EXEC`; `DISCARD` drops the queue and the watches
+  - Arity or unknown-command errors are caught here (S7)
+- **Event log:** `main → main · Transaction · queue = 2 commands · —`
+- **State (main: client 7 transaction):**
+  - before: `mode` = normal; `queue` = []; `watched` = [balance:A]; `결과` = —
+  - after: `mode` = MULTI; `queue` = [DECRBY balance:A 100, INCRBY balance:B 100]; `watched` = [balance:A]; `결과` = —
+- **Sources:** [multi.c#L91-L99](https://github.com/redis/redis/blob/8.10.3/src/multi.c#L91-L99), [multi.c#L77-L82](https://github.com/redis/redis/blob/8.10.3/src/multi.c#L77-L82)
 
-#### S4 · `move` client → A · 올바른 node에서 처리
-- **Subtitle:** 다시 보낸 `GET user:1000`을 A가 처리한다.
+#### S4 · `move` client → main · `EXEC`
+- **Subtitle:** 지켜본 키가 그대로인지 확인하고 큐를 실행한다.
 - **Prose:**
-  > client는 갱신된 map에 따라 A로 다시 보냅니다. A는 slot 1649의 주인이므로 그대로 실행합니다.
-  > 키가 여러 slot에 걸친 명령은 `-CROSSSLOT`으로 거절됩니다. 같은 hash tag를 쓰면 피할 수 있습니다.
-- **Token:** `request` · `GET user:1000`
+  > `EXEC`가 오면 먼저 지켜본 키가 바뀌었는지 봅니다. 그대로면 큐의 명령을 순서대로 실행합니다.
+- **Token:** `request` · `EXEC`
 - **Facts:**
-  - Cross-slot error: `-CROSSSLOT Keys in request don't hash to the same slot`
-- **Event log:** `client → A · RESP2 · GET user:1000 → $5 alice · 28 B / 11 B`
-- **Sources:** [cluster.c#L1487](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1487), [cluster.c#L1500](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1500)
+  - Watches are cleared at `EXEC`, whether it runs or aborts
+  - A watched key changed → nothing runs (S6); otherwise all queued commands run in order
+- **Event log:** `client → main · RESP2 · EXEC · —`
+- **Sources:** [multi.c#L139-L167](https://github.com/redis/redis/blob/8.10.3/src/multi.c#L139-L167), [transactions.md#L250-L252](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/using-commands/transactions.md#L250-L252)
 
-#### S5 · `mutate` A · resharding: slot 1649를 A에서 B로 옮기기 시작
-- **Subtitle:** B에 `IMPORTING A`, A에 `MIGRATING B`를 걸고 `MIGRATE`로 키를 하나씩 옮긴다.
+#### S5 · `mutate` mem · 한꺼번에 실행, 사이에 끼어들 수 없다
+- **Subtitle:** 두 명령이 연속으로 실행되고, 결과는 array로 한 번에 온다.
 - **Prose:**
-  > 전통적인 resharding은 먼저 B에 `CLUSTER SETSLOT 1649 IMPORTING <A>`, 그다음 A에 `CLUSTER SETSLOT 1649 MIGRATING <B>`를 겁니다.
-  > 그리고 `CLUSTER GETKEYSINSLOT`으로 키를 얻어 `MIGRATE … KEYS …`로 B에 옮깁니다.
-  > 옮기는 동안 slot의 키는 A와 B에 나뉘어 있습니다. 이것이 ASK가 필요한 이유입니다.
+  > 큐의 명령은 다른 client의 명령 없이 연속으로 실행됩니다. 결과는 명령 순서대로 담긴 array입니다.
+  > AOF와 replica에는 `MULTI`/`EXEC`로 묶여 한 번에 전달됩니다.
 - **Facts:**
-  - Order: B `IMPORTING` first, then A `MIGRATING`
-  - Finish: `CLUSTER SETSLOT <slot> NODE <B>`
-- **Event log:** `A → B · Resharding · MIGRATE {user:1000}.following · 1 key`
-- **State (A / B: slot 1649):**
-  - before: `A: owner, stable`, `B: —`
-  - after: `A: owner, MIGRATING → B`, `B: IMPORTING ← A`, `{user:1000}.following moved to B`
-- **Sources:** [cluster-spec.md#L446-L505](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L446-L505), [cluster.c#L1432-L1433](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1432-L1433)
+  - Docs: "A request sent by another client will never be served in the middle of the execution of a Redis Transaction"
+  - Propagated wrapped in `MULTI`/`EXEC`; written to the AOF with a single `write(2)`
+- **Event log:** `main → mem · Transaction · EXEC ran 2 commands → *2 :400 :100 · —`
+- **State (mem: db0):**
+  - before: `balance:A` = 500; `balance:B` = 0
+  - after: `balance:A` = 400; `balance:B` = 100
+- **Record:** D6.1 (`wire`)
+- **Sources:** [transactions.md#L28-L32](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/using-commands/transactions.md#L28-L32), [transactions.md#L39-L44](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/using-commands/transactions.md#L39-L44), [transactions.md#L78-L80](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/using-commands/transactions.md#L78-L80), [server.c#L3851-L3888](https://github.com/redis/redis/blob/8.10.3/src/server.c#L3851-L3888)
 
-#### S6 · `move` A → client · `-ASK 1649 10.0.0.2:6379`
-- **Subtitle:** A에 키가 없고 slot이 MIGRATING이면 "이번 한 번만 B에 물어봐라".
+#### S6 · `mutate` main · 누가 먼저 바꿨다면 `EXEC`는 null (side path)
+- **Subtitle:** `WATCH`와 `EXEC` 사이에 다른 client가 `balance:A`를 바꿨다 → 아무것도 실행하지 않는다.
 - **Prose:**
-  > client가 `GET {user:1000}.following`을 A에 보냅니다. A는 slot 주인이지만 키가 이미 B로 갔습니다.
-  > slot이 MIGRATING이고 요청한 키가 모두 없으면 A는 `-ASK`로 답합니다. 일부만 있으면 `-TRYAGAIN`입니다.
-  > ASK는 일시적인 redirect입니다. client는 slot map을 바꾸지 않습니다.
-- **Token:** `response` · `-ASK 1649 10.0.0.2:6379`
+  > 지켜본 키가 바뀌었으면 `EXEC`는 아무것도 실행하지 않고 null을 돌려줍니다. 앱은 다시 `WATCH`부터 시도합니다.
+  > 경쟁이 심한 키에서는 재시도가 많아집니다.
 - **Facts:**
-  - ASK when: slot is MIGRATING and all keys are missing locally
-  - Some keys missing: `-TRYAGAIN Multiple keys request during rehashing of slot`
-  - Client: do not update the slot map
-- **Event log:** `A → client · RESP2 · -ASK 1649 10.0.0.2:6379 (address E.G.) · 25 B`
-- **Record:** D7.1
-- **Sources:** [cluster.c#L1357-L1363](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1357-L1363), [cluster.c#L1437-L1446](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1437-L1446), [cluster.c#L1505](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1505), [cluster-spec.md#L552-L555](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L552-L555)
+  - Abort reply: RESP2 `*-1\r\n`, RESP3 `_\r\n`
+  - Key expiry between `WATCH` and `EXEC` also aborts
+- **Event log:** `main → client · RESP2 · EXEC → *-1 (aborted) · 5 B`
+- **State (main: client 7 transaction):**
+  - before: `mode` = MULTI; `queue` = [DECRBY balance:A 100, INCRBY balance:B 100]; `watched` = [balance:A]; `결과` = —
+  - after: `mode` = normal; `queue` = []; `watched` = []; `결과` = null (balance:A changed), retry
+- **Sources:** [multi.c#L144-L155](https://github.com/redis/redis/blob/8.10.3/src/multi.c#L144-L155), [server.c#L2264-L2267](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2264-L2267), [multi.c#L389-L428](https://github.com/redis/redis/blob/8.10.3/src/multi.c#L389-L428)
 
-#### S7 · `move` client → B · `ASKING` 다음에 같은 명령
-- **Subtitle:** IMPORTING 중인 B는 `ASKING`을 먼저 받은 요청만 처리한다. 플래그는 한 명령 뒤 사라진다.
+#### S7 · `mutate` main · 오류와 rollback 없음 (side path)
+- **Subtitle:** 큐에 넣을 때 오류면 전체 취소(`EXECABORT`). 실행 중 오류면 나머지는 그대로 실행된다.
 - **Prose:**
-  > client는 B에 `ASKING`을 보내고 바로 `GET {user:1000}.following`을 보냅니다.
-  > B는 slot 주인이 아니지만 IMPORTING 상태이고 client에 `CLIENT_ASKING` 플래그가 있으므로 실행합니다. `ASKING` 없이 보내면 A로 `MOVED`합니다.
-  > 옮기기가 끝나면 `SETSLOT … NODE B`로 주인이 바뀌고, 이후 A는 이 slot에 `MOVED`로 답합니다.
-- **Token:** `request` · `ASKING` + `GET {user:1000}.following`
+  > 잘못된 명령(인자 수 오류 등)은 큐에 넣을 때 걸리고, `EXEC`는 `-EXECABORT`로 전체를 버립니다.
+  > 실행 중 오류(예: 문자열에 `LPOP`)는 그 명령만 실패하고 나머지는 실행됩니다. Redis는 rollback하지 않습니다.
 - **Facts:**
-  - `ASKING` sets `CLIENT_ASKING`, cleared after the next command (unless in MULTI)
-  - B serves only if `importing_slot && CLIENT_ASKING`
-- **Event log:** `client → B · RESP2 · ASKING, GET {user:1000}.following · 16 B + 41 B`
-- **Sources:** [cluster.c#L1738-L1745](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1738-L1745), [networking.c#L3052-L3055](https://github.com/redis/redis/blob/8.10.3/src/networking.c#L3052-L3055), [cluster.c#L1452-L1461](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1452-L1461), [cluster-spec.md#L552-L555](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L552-L555)
+  - `-EXECABORT Transaction discarded because of previous errors.`
+  - Docs: "Redis does not support rollbacks of transactions"
+- **Event log:** `main → client · RESP2 · EXEC → *2 +OK -WRONGTYPE … · —`
+- **State (main: client 7 transaction):**
+  - before: `mode` = normal; `queue` = []; `watched` = []; `결과` = null (balance:A changed), retry
+  - after: `mode` = normal; `queue` = []; `watched` = []; `결과` = `*2 [+OK, -WRONGTYPE]` (first command kept)
+- **Sources:** [server.c#L2251-L2252](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2251-L2252), [transactions.md#L98-L109](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/using-commands/transactions.md#L98-L109), [transactions.md#L118-L127](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/using-commands/transactions.md#L118-L127), [transactions.md#L153-L154](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/using-commands/transactions.md#L153-L154)
 
-#### S8 · `mutate` B · 8.4+: atomic slot migration은 ASK 없이 넘긴다
-- **Subtitle:** `CLUSTER MIGRATION IMPORT` — snapshot과 스트림을 받은 뒤 한 번에 소유권을 넘긴다. 8.10의 `redis-cli --cluster reshard`가 이것을 쓴다.
+#### S8 · `move` client → main · 조건이 있으면 Lua script로
+- **Subtitle:** `EVAL <script> 2 balance:A balance:B 100` — 읽고, 판단하고, 쓰기를 서버 안에서 한 번에.
 - **Prose:**
-  > 8.4부터는 대상 node가 `CLUSTER MIGRATION IMPORT <slots>`로 slot 전체를 가져올 수 있습니다.
-  > 원본은 fork해서 slot snapshot을 보내고 새 쓰기는 스트림으로 보냅니다. 거의 따라잡으면 원본이 잠깐 쓰기를 멈추고, 대상이 소유권을 가져갑니다.
-  > 그동안 원본이 slot을 계속 서비스하므로 ASK가 없고, 넘긴 뒤에는 MOVED만 나옵니다. MIGRATING/IMPORTING 상태가 있는 동안에는 시작할 수 없습니다.
+  > `MULTI`는 중간 결과를 보고 판단할 수 없습니다. "잔액이 있으면 이체" 같은 조건은 Lua script로 서버 안에서 실행합니다.
+  > script 실행 중에는 서버의 다른 모든 일이 멈춥니다. 그래서 원자적입니다.
+- **Token:** `request` · `EVAL <transfer.lua> 2 balance:A balance:B 100`
 - **Facts:**
-  - `CLUSTER MIGRATION`: since 8.4.0 (`IMPORT`, `CANCEL`, `STATUS`)
-  - `cluster-slot-migration-write-pause-timeout`: 10000 ms; `cluster-slot-migration-handoff-max-lag-bytes`: 1 MB
-  - 8.10: `redis-cli --cluster reshard` and `rebalance` use it
-- **Event log:** `B → A · Resharding · CLUSTER MIGRATION IMPORT 1649 1649 · —`
-- **State (A / B: slot 1649, ASM):**
-  - before: `A: owner`, `B: —`
-  - after: `A: trimming migrated keys`, `B: owner` (config updated over the cluster bus)
-- **Sources:** [cluster_asm.c#L9-L43](https://github.com/redis/redis/blob/8.10.3/src/cluster_asm.c#L9-L43), [cluster_asm.c#L698-L703](https://github.com/redis/redis/blob/8.10.3/src/cluster_asm.c#L698-L703), [cluster-migration.md#L69-L72](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/cluster-migration.md#L69-L72), [config.c#L3576-L3577](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3576-L3577), [00-RELEASENOTES#L290](https://github.com/redis/redis/blob/8.10.3/00-RELEASENOTES#L290), [atomic-slot-migration.tcl#L1668-L1673](https://github.com/redis/redis/blob/8.10.3/tests/unit/cluster/atomic-slot-migration.tcl#L1668-L1673)
+  - Docs: "all server activities are blocked during its entire runtime"
+  - Pass every key in `KEYS`; scripts must not build key names (cluster routing)
+- **Event log:** `client → main · RESP2 · EVAL transfer 2 balance:A balance:B 100 · —`
+- **Sources:** [eval-intro.md#L28-L30](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/programmability/eval-intro.md#L28-L30), [eval-intro.md#L98-L101](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/programmability/eval-intro.md#L98-L101)
 
-#### S9 · `move` A → C · cluster bus: PING/PONG와 gossip
-- **Subtitle:** 각 node는 data port + 10000(예: 16379)으로 서로 PING을 보내고, 다른 node 소식을 몇 개씩 실어 보낸다.
+#### S9 · `mutate` main · 5초가 넘으면 `-BUSY`
+- **Subtitle:** 오래 도는 script는 자동으로 멈추지 않는다. 다른 client는 `-BUSY`를 받는다.
 - **Prose:**
-  > node끼리는 cluster bus(기본 data port + 10000)로 이진 메시지를 주고받습니다. header는 `RCmb`로 시작하고 2256바이트입니다.
-  > header에는 보내는 node의 epoch, 자기 slot bitmap(2048바이트), master ID, IP, 상태가 들어갑니다. 그래서 PING 하나로 slot 소유권도 퍼집니다.
-  > 본문에는 다른 node에 대한 gossip을 최소 3개, 보통 node 수의 1/10개 싣습니다.
-- **Token:** `data` · `PING (type 0)`
+  > script가 `busy-reply-threshold`(5초)를 넘으면 다른 client는 `-BUSY`를 받습니다. script는 계속 돕니다.
+  > `SCRIPT KILL`은 아직 쓰지 않은 script만 멈춥니다. 이미 썼다면 `SHUTDOWN NOSAVE`밖에 없습니다.
 - **Facts:**
-  - Bus port: `port + 10000` (`cluster-port` 0 = default)
-  - Header: 2256 bytes up to `data`; `myslots` is 16384 bits = 2048 bytes
-  - Gossip entries per message: `max(3, nodes/10)`; each 104 bytes
-- **Event log:** `A → C · Bus · PING currentEpoch=6 configEpoch=1 gossip×3 (E.G.) · 2568 B (E.G.)`
-- **Record:** D7.2
-- **Sources:** [cluster_legacy.h#L18](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.h#L18), [redis.conf#L1769-L1772](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1769-L1772), [cluster_legacy.h#L96-L122](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.h#L96-L122), [cluster_legacy.h#L232-L289](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.h#L232-L289), [cluster_legacy.c#L3807-L3808](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.c#L3807-L3808), [cluster-spec.md#L312-L318](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L312-L318)
+  - `busy-reply-threshold` (alias `lua-time-limit`): 5000 ms
+  - Wrote already: `-UNKILLABLE …`; only `SHUTDOWN NOSAVE` stops it
+- **Event log:** `main → main · Script · script 5000 ms+, other clients get -BUSY · 5 s+`
+- **State (main: client 7 transaction):**
+  - before: `mode` = normal; `queue` = []; `watched` = []; `결과` = `*2 [+OK, -WRONGTYPE]` (first command kept)
+  - after: `mode` = script running; `queue` = []; `watched` = []; `결과` = others get `-BUSY`; `SCRIPT KILL` → `-UNKILLABLE` (already wrote)
+- **Sources:** [config.c#L3573](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3573), [programmability/_index.md#L115-L132](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/programmability/_index.md#L115-L132), [server.c#L2235-L2238](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2235-L2238), [script.c#L371-L377](https://github.com/redis/redis/blob/8.10.3/src/script.c#L371-L377)
 
-#### S10 · `mutate` B · node timeout이 지나면 PFAIL
-- **Subtitle:** A가 `cluster-node-timeout`(15000 ms)보다 오래 응답하지 않으면 B는 A에 PFAIL 표시를 한다.
+#### S10 · `mutate` main · script cache는 사라지고, Function은 남는다
+- **Subtitle:** `EVALSHA`의 cache는 재시작과 failover에서 비어 `-NOSCRIPT`가 난다. Function은 RDB/AOF와 replica에 남는다.
 - **Prose:**
-  > A가 죽었습니다. B는 A에 보낸 PING의 답이 node timeout보다 오래 없으면 A를 `PFAIL`(possibly failed)로 표시합니다.
-  > PFAIL은 B 혼자의 판단입니다. 이것만으로는 failover가 시작되지 않습니다.
-  > B는 이후 gossip에 "A는 PFAIL"을 실어 다른 node에 알립니다.
+  > `SCRIPT LOAD`로 올린 script cache는 저장되지 않습니다. 재시작이나 failover 뒤 `EVALSHA`는 `-NOSCRIPT`를 받으므로 client는 `EVAL`로 다시 보내야 합니다.
+  > `FUNCTION LOAD`로 올린 Function은 데이터처럼 저장되고 복제됩니다. replica로는 script가 아니라 실행한 명령들이 갑니다.
 - **Facts:**
-  - `cluster-node-timeout`: 15000 ms
-  - PFAIL flag value: 4; FAIL flag value: 8
-- **Event log:** `B → B · Bus · node A no PONG for 15000 ms → PFAIL · 15 s`
-- **State (B: view of A):**
-  - before: `A flags = master`
-  - after: `A flags = master,PFAIL`
-- **Sources:** [cluster-spec.md#L732](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L732), [cluster_legacy.c#L5002-L5006](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.c#L5002-L5006), [redis.conf#L1767](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1767), [config.c#L3574](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3574), [cluster_legacy.h#L60-L64](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.h#L60-L64)
+  - `-NOSCRIPT No matching script. Please use EVAL.`
+  - Docs: functions "are as durable as the data itself"
+  - Scripts replicate as effects: the commands they ran, wrapped in `MULTI`/`EXEC`
+- **Event log:** `client → main · RESP2 · EVALSHA <sha> … → -NOSCRIPT (after failover) · —`
+- **State (main: client 7 transaction):**
+  - before: `mode` = script running; `queue` = []; `watched` = []; `결과` = others get `-BUSY`; `SCRIPT KILL` → `-UNKILLABLE` (already wrote)
+  - after: `mode` = normal; `queue` = []; `watched` = []; `결과` = `EVALSHA` → `-NOSCRIPT`; `FCALL` works
+- **Sources:** [eval-intro.md#L153-L179](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/programmability/eval-intro.md#L153-L179), [server.c#L2231-L2232](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2231-L2232), [functions-intro.md#L83-L87](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/programmability/functions-intro.md#L83-L87), [eval-intro.md#L276-L277](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/programmability/eval-intro.md#L276-L277)
 
-#### S11 · `move` B → A1 · 과반 master가 동의하면 FAIL을 방송
-- **Subtitle:** `node_timeout × 2` 안에 과반 master의 PFAIL 보고가 모이면 FAIL로 바꾸고 모든 node에 알린다.
-- **Prose:**
-  > B는 gossip으로 받은 다른 master들의 보고를 셉니다. 자기 판단을 포함해 과반(`size/2 + 1`)이 `node_timeout × 2` 안에 PFAIL/FAIL을 보고했으면 A를 `FAIL`로 바꿉니다.
-  > 그리고 FAIL 메시지를 모든 node에 방송합니다. FAIL은 모두가 받아들이는 판단입니다.
-- **Token:** `data` · `FAIL (type 3) A`
-- **Facts:**
-  - Quorum: `size/2 + 1` masters; window `node_timeout × CLUSTER_FAIL_REPORT_VALIDITY_MULT` (2) = 30 s
-  - Message type `FAIL` = 3
-- **Event log:** `B → A1 · Bus · FAIL about A (2 of 3 masters) · —`
-- **State (cluster view of A):**
-  - before: `A flags = master,PFAIL`, `reports = [B]`
-  - after: `A flags = master,FAIL`, `reports = [B, C]`
-- **Sources:** [cluster-spec.md#L746](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L746), [cluster_legacy.h#L22](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.h#L22), [cluster_legacy.c#L1935-L1961](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.c#L1935-L1961), [cluster_legacy.h#L96-L107](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.h#L96-L107)
+### Replay
 
-#### S12 · `mutate` A1 · replica는 잠깐 기다린 뒤 선거를 연다
-- **Subtitle:** DELAY = 500 ms + random(0~500 ms) + rank × 1000 ms. offset이 가장 앞선 replica의 rank가 0이다.
-- **Prose:**
-  > A1은 바로 나서지 않습니다. FAIL이 퍼질 시간과 다른 replica와의 경쟁을 고려해 `500 + random(0..500) + rank × 1000` ms를 기다립니다.
-  > rank는 복제 offset 순위입니다. 데이터가 가장 최신인 replica가 먼저 나서게 됩니다.
-  > 기다린 뒤 `currentEpoch`를 1 올리고 모든 master에 `FAILOVER_AUTH_REQUEST`를 보냅니다.
-- **Facts:**
-  - Delay: `500 + random() % 500 + rank × 1000` ms (manual failover: 0)
-  - Auth timeout: `max(2 × node_timeout, 2000 ms)`; retry after twice that
-  - `cluster-replica-validity-factor`: 10 (a replica disconnected too long does not run)
-- **Event log:** `A1 → A1 · Failover · rank 0, delay 742 ms (E.G.), currentEpoch 6 → 7 · 742 ms`
-- **State (A1):**
-  - before: `currentEpoch = 6`, `failover_auth_rank = 0`
-  - after: `currentEpoch = 7`, `failover_auth_epoch = 7`, `votes = 0`
-- **Sources:** [cluster-spec.md#L840-L849](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L840-L849), [cluster_legacy.c#L4483-L4498](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.c#L4483-L4498), [cluster_legacy.c#L4428-L4430](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.c#L4428-L4430), [cluster_legacy.c#L4547-L4552](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.c#L4547-L4552), [redis.conf#L1842](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1842)
-
-#### S13 · `move` B → A1 · master는 epoch마다 한 표
-- **Subtitle:** B와 C가 `FAILOVER_AUTH_ACK`로 투표한다. 과반을 얻으면 당선.
-- **Prose:**
-  > 각 master는 한 epoch에 한 번만 투표합니다. 같은 master의 replica에게는 `node_timeout × 2` 안에 다시 투표하지 않습니다.
-  > 요청한 slot에 더 높은 configEpoch를 가진 주인이 있으면 투표하지 않습니다.
-  > A1이 과반(3개 중 2개)의 ACK를 받으면 당선입니다.
-- **Token:** `data` · `FAILOVER_AUTH_ACK (type 6)`
-- **Facts:**
-  - One vote per epoch (`lastVoteEpoch == currentEpoch` → refuse)
-  - No second vote for the same master's replicas within `2 × node_timeout`
-  - Message types: `FAILOVER_AUTH_REQUEST` 5, `FAILOVER_AUTH_ACK` 6
-- **Event log:** `B → A1 · Bus · FAILOVER_AUTH_ACK epoch 7 · —`
-- **State (A1: votes):**
-  - before: `votes = 0 / needed 2`
-  - after: `votes = 2 / needed 2` → elected
-- **Sources:** [cluster_legacy.c#L4189](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.c#L4189), [cluster_legacy.c#L4222](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.c#L4222), [cluster_legacy.c#L4235-L4251](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.c#L4235-L4251), [cluster_legacy.c#L4561-L4576](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.c#L4561-L4576)
-
-#### S14 · `mutate` A1 · 새 master: slot을 가져가고 PONG을 방송
-- **Subtitle:** A1의 configEpoch = 7. 더 높은 configEpoch가 slot을 가져가는 "last failover wins".
-- **Prose:**
-  > A1은 자기 configEpoch를 선거 epoch(7)로 두고 A의 slot을 자기 것으로 바꾼 뒤 모든 node에 PONG을 방송합니다.
-  > 다른 node는 더 높은 configEpoch로 slot을 주장하는 메시지를 받으면 그쪽으로 slot을 다시 묶습니다. 이를 "last failover wins"라고 합니다.
-  > 옛 정보를 가진 node에는 `UPDATE` 메시지를 보냅니다. A가 돌아오면 A1의 replica가 됩니다.
-- **Facts:**
-  - Winner: `configEpoch = failover_auth_epoch`, takes the old master's slots
-  - Stale node: gets `UPDATE` (type 7)
-  - Manual: `CLUSTER FAILOVER [FORCE | TAKEOVER]` (`TAKEOVER` skips the vote)
-- **Event log:** `A1 → B · Bus · PONG configEpoch=7 slots 0–5460 (E.G.) · —`
-- **State (cluster: slots 0–5460):**
-  - before: `owner = A (configEpoch 1)`
-  - after: `owner = A1 (configEpoch 7)`, `A = replica of A1 when it returns`
-- **Sources:** [cluster_legacy.c#L4370-L4401](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.c#L4370-L4401), [cluster-spec.md#L859](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L859), [cluster-spec.md#L961-L975](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L961-L975), [cluster_legacy.c#L3295-L3303](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.c#L3295-L3303), [cluster-failover.md#L40-L97](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/cluster-failover.md#L40-L97)
-
-#### S15 · `mutate` A · 받은 쓰기도 잃을 수 있다: write safety
-- **Subtitle:** 비동기 복제와 last failover wins 때문에 분할 중에는 쓰기를 잃는 시간 창이 있다.
-- **Prose:**
-  > A가 쓰기에 `+OK`를 답했지만 A1에 복제되기 전에 죽으면, 그 쓰기는 A1이 승격되며 사라집니다.
-  > 네트워크 분할로 소수 쪽에 남은 A에 옛 map을 가진 client가 계속 쓰는 경우도 있습니다. 이 쓰기도 A가 replica로 돌아갈 때 사라집니다.
-  > 다만 소수 쪽 master는 과반과 `NODE_TIMEOUT` 동안 연락이 없으면 쓰기를 거절하므로, 잃는 범위는 그 시간으로 제한됩니다.
-- **Facts:**
-  - Spec: "There is always a window of time when it is possible to lose writes during partitions."
-  - Minority master refuses writes after `NODE_TIMEOUT` without the majority (cluster state `FAIL`)
-  - `cluster-require-full-coverage`: yes; `cluster-allow-reads-when-down`: no
-- **Event log:** `client → A · RESP2 · SET x 1 → +OK, lost after failover (E.G.) · —`
-- **State (A, minority side):**
-  - before: `state = ok`, `writes = accepted`
-  - after (15 s): `state = fail`, `writes = -CLUSTERDOWN The cluster is down`
-- **Sources:** [cluster-spec.md#L76-L98](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L76-L98), [cluster_legacy.c#L5368-L5374](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.c#L5368-L5374), [cluster.c#L1507-L1511](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1507-L1511), [redis.conf#L1883](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1883), [redis.conf#L1909](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1909)
+S1 → S2 → S4 → S5: client → main (`WATCH`, queue) → main (`EXEC`) → mem (both writes at once).
 
 ### Decoder records
 
-**D7.1 Redirect errors.** Layers: type · kind · slot · endpoint.
+**D6.1 · step S5 · `wire` · `EXEC` reply.**
 
-| Frame | Bytes (text) | Size | Fields |
-|---|---|---|---|
-| MOVED | `-MOVED 1649 10.0.0.1:6379\r\n` | 27 B | `-` error · `MOVED` · slot 1649 · endpoint (E.G.) : port |
-| ASK | `-ASK 1649 10.0.0.2:6379\r\n` | 25 B | `-` error · `ASK` · slot 1649 · endpoint (E.G.) : port |
+| Bytes (text) | Field | Meaning |
+|---|---|---|
+| `*2\r\n` | array header | one reply per queued command |
+| `:400\r\n` | reply 1 | `DECRBY balance:A 100` |
+| `:100\r\n` | reply 2 | `INCRBY balance:B 100` |
 
-Sources: [cluster.c#L1512-L1520](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1512-L1520), [cluster-spec.md#L385-L390](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L385-L390).
-
-**D7.2 Cluster bus message header `clusterMsg` (fields up to `data`, 2256 B; multi-byte integers in network byte order).** Layers: fixed header · slot bitmap · identity · flags · data.
-
-| Offset | Size | Field | Example value | E.G.? |
-|---|---|---|---|---|
-| 0 | 4 | `sig` | `RCmb` | |
-| 4 | 4 | `totlen` | 2568 (header + 3 gossip entries; computed) | E.G. |
-| 8 | 2 | `ver` | 1 (`CLUSTER_PROTO_VER`) | |
-| 10 | 2 | `port` | 6379 | E.G. |
-| 12 | 2 | `type` | 0 = PING (1 PONG, 2 MEET, 3 FAIL, 4 PUBLISH, 5 AUTH_REQUEST, 6 AUTH_ACK, 7 UPDATE, 8 MFSTART, 9 MODULE, 10 PUBLISHSHARD) | |
-| 14 | 2 | `count` | 3 gossip entries | E.G. |
-| 16 | 8 | `currentEpoch` | 6 | E.G. |
-| 24 | 8 | `configEpoch` | 1 | E.G. |
-| 32 | 8 | `offset` | replication offset | E.G. |
-| 40 | 40 | `sender` | 40-char node id | E.G. |
-| 80 | 2048 | `myslots` | bits 0–5460 set | E.G. |
-| 2128 | 40 | `slaveof` | all zero for a master | |
-| 2168 | 46 | `myip` | `10.0.0.1` | E.G. |
-| 2214 | 2 | `extensions` | number of ping extensions | E.G. |
-| 2216 | 30 | `notused1` | zero | |
-| 2246 | 2 | `pport` | secondary port (TLS/plain) | E.G. |
-| 2248 | 2 | `cport` | 16379 | E.G. |
-| 2250 | 2 | `flags` | `myself->flags`: master (1) + myself (16) = 0x0011 | |
-| 2252 | 1 | `state` | 0 = `CLUSTER_OK` | |
-| 2253 | 3 | `mflags` | manual-failover flags | |
-| 2256 | … | `data` | union: gossip entries (104 B each) for PING/PONG/MEET | |
-
-Gossip entry (`clusterMsgDataGossip`, 104 B): `nodename[40]`, `ping_sent`, `pong_received`, `ip[46]`, `port`, `cport`, `flags`, `pport`, `notused1`. Sources: [cluster_legacy.h#L96-L122](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.h#L96-L122), [cluster_legacy.h#L230-L289](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.h#L230-L289), [cluster_legacy.c#L3690-L3743](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.c#L3690-L3743), [cluster_legacy.h#L60-L64](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.h#L60-L64), [cluster.h#L27-L28](https://github.com/redis/redis/blob/8.10.3/src/cluster.h#L27-L28).
+On a `WATCH` conflict the whole reply is `*-1\r\n` (RESP2) or `_\r\n` (RESP3). Sources: [multi.c#L185-L230](https://github.com/redis/redis/blob/8.10.3/src/multi.c#L185-L230), [exec.md#L54-L62](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/exec.md#L54-L62).
 
 ### Self-check
 
-1. **Q:** `user:1000`과 `{user:1000}.following`이 같은 node에 있는 이유는? **A:** 두 번째 키는 hash tag `{user:1000}` 안만 hash하므로 둘 다 CRC16("user:1000") mod 16384 = 1649.
-2. **Q:** MOVED와 ASK의 차이와 client 동작은? **A:** MOVED는 slot 주인이 바뀐 것, client는 slot map을 갱신한다. ASK는 migration 중 일시적인 것, `ASKING` 후 그 한 명령만 대상 node로 보내고 map은 바꾸지 않는다.
-3. **Q:** PFAIL과 FAIL의 차이는? **A:** PFAIL은 한 node가 node timeout(기본 15 s) 동안 답을 못 받아 내린 판단. FAIL은 과반 master의 보고가 node timeout × 2 안에 모여 방송된 판단이고, failover의 조건이다.
-4. **Q:** replica가 선거 전에 기다리는 시간과 그 이유는? **A:** 500 ms + random(0~500 ms) + rank × 1000 ms. FAIL이 퍼질 시간을 주고, offset이 가장 앞선 replica(rank 0)가 먼저 나서게 한다.
-5. **Q:** 두 replica가 같은 slot을 주장하면 누가 이기나? **A:** configEpoch가 더 큰 쪽(last failover wins).
-6. **Q:** 8.4+의 `CLUSTER MIGRATION`은 전통 resharding과 무엇이 다른가? **A:** slot 단위로 snapshot과 스트림을 보내고 한 번에 소유권을 넘기므로 키가 두 node에 나뉜 상태와 ASK redirect가 없다.
-7. **Q:** Redis Cluster에서 `+OK`를 받은 쓰기를 잃는 경우는? **A:** 복제 전에 master가 죽어 replica가 승격될 때, 그리고 분할된 소수 쪽 master가 NODE_TIMEOUT 전까지 받은 쓰기.
+1. **Q:** `MULTI`/`EXEC`에서 두 번째 명령이 실행 중 실패하면 첫 번째는? **A:** 그대로 남는다. Redis는 rollback하지 않는다. 큐에 넣을 때의 오류만 `EXECABORT`로 전체를 취소한다.
+2. **Q:** `WATCH`로 check-and-set을 하는 순서는? **A:** `WATCH` → 읽기 → 계산 → `MULTI` → 쓰기 → `EXEC`. null이면 처음부터 재시도.
+3. **Q:** Lua script가 6초째 돌고 있다. 다른 client와 운영자는 무엇을 보나? **A:** 다른 client는 `-BUSY`. 쓰기 전이면 `SCRIPT KILL`, 이미 썼으면 `SHUTDOWN NOSAVE`뿐.
+4. **Q:** failover 뒤 `EVALSHA`가 실패하는 이유와 대책은? **A:** script cache는 저장, 복제되지 않는다. `EVAL`로 다시 보내거나 Function을 쓴다.
 
 ---
+
+## Lesson 7. `bigkey-lazyfree`: 큰 키 하나가 서버를 멈춘다
+
+**Goal.** See why one command on a big key stalls every client, why deleting a big key is itself slow, how `UNLINK` moves the free to a background thread, and how to find big and hot keys without `KEYS`.
+
+**Critical path.** O(N) command on a big key → the one main thread is busy → every client waits; `UNLINK` → O(1) unlink → background thread frees.
+
+**Interview and incident questions**
+- big key가 왜 문제인가? 어떻게 찾나?
+- `DEL`과 `UNLINK`의 차이는? 만료나 eviction으로 지워질 때는?
+- 운영에서 `KEYS *`를 쓰면 안 되는 이유와 대안은?
+- hot key는 어떻게 찾고 줄이나?
+
+**Overview (one line).** 8.6부터 CPU와 네트워크 기준으로 hot key를 기록하는 `HOTKEYS` 명령이 있다(hotkeys docs).
+
+**Nodes:** `client` (app, redis-cli), `main`, `mem` (db0), `bg` (bio lazyfree thread).
+
+**State panels**
+
+| Node | Panel | Initial rows |
+|---|---|---|
+| `main` | main thread | `실행 중` = —; `대기 client` = 0; `lazyfree 설정` = 모두 no |
+| `mem` | db0 | `big:hash` = hash, 1M fields (E.G.); `big:set` = set, 2M members (E.G.); `user:7` = string |
+| `bg` | lazyfree | `대기 객체` = 0; `해제 완료` = 0 |
+
+**Layer selector:** `Command` · `Thread` · `Memory`.
+
+### Steps
+
+#### S1 · `move` client → main · 큰 hash 전체 읽기
+- **Subtitle:** `HGETALL big:hash` — field 100만 개.
+- **Prose:**
+  > 원소가 많은 키에 O(N) 명령(`HGETALL`, `SMEMBERS`, `LRANGE 0 -1`)을 보내면 N에 비례해 시간이 걸립니다.
+  > 실행은 main thread 하나이므로 그동안 다른 명령은 실행되지 않습니다.
+- **Token:** `request` · `HGETALL big:hash`
+- **Facts:**
+  - Docs: "when a request is slow to serve all the other clients will wait"
+  - Docs advice: avoid slow commands on values with many elements, or run them on a replica
+- **Event log:** `client → main · RESP2 · HGETALL big:hash · 31 B`
+- **Sources:** [latency.md#L191-L204](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/optimization/latency.md#L191-L204)
+
+#### S2 · `mutate` main · 모두가 기다린다
+- **Subtitle:** 수백 ms 동안 main thread가 이 명령만 처리한다. slowlog에 남고 응답은 수십 MB다.
+- **Prose:**
+  > 이 명령이 도는 동안 다른 client의 명령은 대기열에 쌓이고, 앱에서는 timeout으로 보입니다.
+  > 실행 시간은 slowlog에 남습니다. 큰 응답은 output buffer에 쌓여 메모리도 씁니다.
+- **Facts:**
+  - `SLOWLOG GET` shows id, time, duration (µs), args, client address, client name
+  - Slowlog measures execution only, not network time
+- **Event log:** `main → main · Thread · HGETALL 1M fields · 800 ms (E.G.)`
+- **State (main: main thread):**
+  - before: `실행 중` = —; `대기 client` = 0; `lazyfree 설정` = 모두 no
+  - after: `실행 중` = HGETALL big:hash (800 ms, E.G.); `대기 client` = 120 (E.G.); `lazyfree 설정` = 모두 no
+- **Record:** D7.1 (`wire`)
+- **Sources:** [slowlog-get.md#L48-L62](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/slowlog-get.md#L48-L62), [config.c#L3579](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3579), [clients.md#L90-L92](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/clients.md#L90-L92)
+
+#### S3 · `move` client → main · 큰 키를 `DEL`
+- **Subtitle:** 지우는 것도 O(N)이다.
+- **Prose:**
+  > `DEL`은 문자열이면 O(1)이지만, hash/set/list/zset이면 원소 수 M에 비례합니다. 원소마다 메모리를 하나씩 해제하기 때문입니다.
+- **Token:** `request` · `DEL big:hash`
+- **Facts:**
+  - Docs: deleting a non-string key is "O(M) where M is the number of elements"
+  - Deleting a string is O(1)
+- **Event log:** `client → main · RESP2 · DEL big:hash · 27 B`
+- **Sources:** [del.md#L25-L28](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/del.md#L25-L28)
+
+#### S4 · `mutate` main · `DEL`은 main thread에서 해제한다
+- **Subtitle:** 원소 100만 개를 하나씩 free하는 동안 서버가 멈춘다.
+- **Prose:**
+  > `DEL`은 main thread에서 메모리를 바로 해제합니다. 원소가 수백만 개면 몇 초까지 걸릴 수 있습니다.
+- **Facts:**
+  - redis.conf: DEL on a key with "millions of elements" can "block for a long time (even seconds)"
+  - `lazyfree-lazy-user-del yes` makes `DEL` behave like `UNLINK` (default `no`)
+- **Event log:** `main → main · Thread · DEL big:hash, free 1M allocations · 1.2 s (E.G.)`
+- **State (main: main thread):**
+  - before: `실행 중` = HGETALL big:hash (800 ms, E.G.); `대기 client` = 120 (E.G.); `lazyfree 설정` = 모두 no
+  - after: `실행 중` = DEL big:hash (1.2 s, E.G.); `대기 client` = 300 (E.G.); `lazyfree 설정` = 모두 no
+- **Sources:** [redis.conf#L1327-L1334](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1327-L1334), [redis.conf#L1374-L1379](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1374-L1379), [config.c#L3413](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3413)
+
+#### S5 · `move` client → main · 대신 `UNLINK`
+- **Subtitle:** `UNLINK big:set` — 키만 떼어 내고 해제는 다른 thread에 맡긴다.
+- **Prose:**
+  > `UNLINK`는 키를 keyspace에서 떼어 내는 것만 main thread에서 합니다(O(1)). 실제 메모리 해제는 다른 thread가 합니다.
+- **Token:** `request` · `UNLINK big:set`
+- **Facts:**
+  - Docs: "O(1) for each key removed regardless of its size", then O(N) in a different thread
+  - `FLUSHALL ASYNC` / `FLUSHDB ASYNC` do the same for whole databases
+- **Event log:** `client → main · RESP2 · UNLINK big:set · 29 B`
+- **Sources:** [unlink.md#L26-L28](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/unlink.md#L26-L28), [unlink.md#L60-L64](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/unlink.md#L60-L64), [flushall.md#L61-L62](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/flushall.md#L61-L62)
+
+#### S6 · `mutate` mem · 키는 즉시 사라진다
+- **Subtitle:** 다른 client에게 `big:set`은 이미 없다.
+- **Prose:**
+  > keyspace에서 키를 떼어 내면 다른 client에게 그 키는 바로 없는 것처럼 보입니다. 해제할 객체는 background 대기열로 갑니다.
+- **Facts:**
+  - The key is gone from the keyspace before the memory is freed
+  - Values with 64 allocations or fewer (strings, small listpacks) are freed on the spot; the thread hand-off would cost more
+- **Event log:** `main → mem · Memory · unlink big:set · O(1)`
+- **State (mem: db0):**
+  - before: `big:hash` = hash, 1M fields (E.G.); `big:set` = set, 2M members (E.G.); `user:7` = string
+  - after: `user:7` = string
+- **Sources:** [db.c#L918-L922](https://github.com/redis/redis/blob/8.10.3/src/db.c#L918-L922), [lazyfree.c#L221-L241](https://github.com/redis/redis/blob/8.10.3/src/lazyfree.c#L221-L241)
+
+#### S7 · `mutate` bg · background thread가 해제한다
+- **Subtitle:** bio lazyfree thread가 200만 원소를 해제하는 동안 main thread는 다른 명령을 처리한다.
+- **Prose:**
+  > 해제는 bio thread가 합니다. `INFO memory`의 `lazyfree_pending_objects`가 대기 중인 객체 수입니다.
+  > 메모리는 해제가 끝나야 줄어듭니다. `used_memory`가 바로 떨어지지 않는 이유입니다.
+- **Facts:**
+  - Thread: `bio_lazy_free`
+  - `INFO memory`: `lazyfree_pending_objects`, `lazyfreed_objects`
+- **Event log:** `bg → bg · Memory · free big:set (2M members) · 1.5 s, main thread not blocked (E.G.)`
+- **State (bg: lazyfree):**
+  - before: `대기 객체` = 0; `해제 완료` = 0
+  - after: `대기 객체` = 0; `해제 완료` = 1 (big:set)
+- **Sources:** [bio.c#L51-L63](https://github.com/redis/redis/blob/8.10.3/src/bio.c#L51-L63), [server.c#L6597-L6598](https://github.com/redis/redis/blob/8.10.3/src/server.c#L6597-L6598), [info.md#L214-L217](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/info.md#L214-L217)
+
+#### S8 · `mutate` main · 만료, eviction, 덮어쓰기도 기본은 동기 해제
+- **Subtitle:** 사용자가 `DEL`하지 않아도 큰 키는 지워진다. 기본값은 모두 main thread에서 해제다.
+- **Prose:**
+  > 큰 키가 만료되거나, eviction되거나, `SET`/`RENAME`으로 덮어써지거나, replica가 full sync 전에 데이터를 비울 때도 기본은 main thread에서 해제합니다.
+  > 큰 키가 있는 서버는 `lazyfree-lazy-*`를 켜는 것을 검토합니다.
+- **Facts:**
+  - All default `no`: `lazyfree-lazy-eviction`, `lazyfree-lazy-expire`, `lazyfree-lazy-server-del`, `replica-lazy-flush`, `lazyfree-lazy-user-del`
+  - redis.conf: "In all the above cases the default is to delete objects in a blocking way"
+- **Event log:** `client → main · RESP2 · CONFIG SET lazyfree-lazy-expire yes (and others) · —`
+- **State (main: main thread):**
+  - before: `실행 중` = DEL big:hash (1.2 s, E.G.); `대기 client` = 300 (E.G.); `lazyfree 설정` = 모두 no
+  - after: `실행 중` = —; `대기 client` = 0; `lazyfree 설정` = eviction, expire, server-del, replica-flush = yes
+- **Sources:** [redis.conf#L1349-L1386](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1349-L1386), [config.c#L3410-L3414](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3410-L3414), [config.c#L3426](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3426), [replication.md#L48](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L48)
+
+#### S9 · `move` client → main · big key 찾기: `--bigkeys`, `--memkeys`
+- **Subtitle:** `SCAN`으로 조금씩 훑는다. 운영에서 `KEYS *`는 쓰지 않는다.
+- **Prose:**
+  > `redis-cli --bigkeys`는 `SCAN`으로 키를 조금씩 훑으며 타입별 크기(원소 수)가 가장 큰 키를 찾습니다. `--memkeys`는 `MEMORY USAGE`로 바이트를 봅니다.
+  > `KEYS *`는 한 번에 전체를 훑어 큰 DB에서 서버를 멈춥니다.
+- **Token:** `request` · `SCAN 0 COUNT 10` …
+- **Facts:**
+  - `--bigkeys`: `SCAN` + `TYPE` + `STRLEN`/`LLEN`/`SCARD`/`HLEN`/`ZCARD`/`XLEN`; `-i` throttles it
+  - `SCAN` returns every element present for the whole iteration, maybe more than once; `COUNT` default 10
+  - Docs on `KEYS`: "Don't use `KEYS` in your regular application code"
+- **Event log:** `client → main · RESP2 · redis-cli --bigkeys (SCAN …) · —`
+- **Sources:** [cli.md#L557-L560](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/tools/cli.md#L557-L560), [redis-cli.c#L9762-L9805](https://github.com/redis/redis/blob/8.10.3/src/redis-cli.c#L9762-L9805), [scan.md#L158-L178](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/scan.md#L158-L178), [keys.md#L62-L69](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/keys.md#L62-L69)
+
+#### S10 · `move` client → main · hot key 찾기: `--hotkeys`
+- **Subtitle:** LFU 정책일 때만 `OBJECT FREQ`로 접근 빈도를 볼 수 있다.
+- **Prose:**
+  > `redis-cli --hotkeys`는 `OBJECT FREQ`로 접근 빈도를 봅니다. `maxmemory-policy`가 LFU일 때만 동작합니다.
+  > 한 키에 몰리는 읽기는 replica에서 읽게 하거나 client-side caching으로 줄입니다.
+- **Token:** `request` · `OBJECT FREQ product:7`
+- **Facts:**
+  - Without an LFU policy: `An LFU maxmemory policy is not selected, access frequency not tracked. …`
+  - Mitigations in the docs: read replicas, client-side caching
+- **Event log:** `client → main · RESP2 · redis-cli --hotkeys (OBJECT FREQ …) · —`
+- **Sources:** [redis-cli.c#L3301-L3302](https://github.com/redis/redis/blob/8.10.3/src/redis-cli.c#L3301-L3302), [object.c#L1790-L1791](https://github.com/redis/redis/blob/8.10.3/src/object.c#L1790-L1791), [replication.md#L49](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L49), [client-side-caching.md#L72-L75](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/client-side-caching.md#L72-L75)
+
+### Replay
+
+S1 → S2, then S5 → S6 → S7: client → main (busy, all wait); client → main → mem (unlink) → bg (free).
+
+### Decoder records
+
+**D7.1 · step S2 · `wire` · one `SLOWLOG GET` entry (RESP array of 7).**
+
+| Field | Example | Meaning |
+|---|---|---|
+| id | `14` (E.G.) | entry id |
+| timestamp | `1793750400` (E.G.) | Unix time the command ran |
+| duration | `800213` (E.G.) | execution time in µs (no network time) |
+| arguments | `["HGETALL","big:hash"]` | the command |
+| client | `10.0.3.17:52144` (E.G.) | client address |
+| client name | `order-api` (E.G.) | set by `CLIENT SETNAME` |
+| total args | `2` | original argument count |
+
+Sources: [slowlog-get.md#L54-L62](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/slowlog-get.md#L54-L62), [slowlog.c#L178-L187](https://github.com/redis/redis/blob/8.10.3/src/slowlog.c#L178-L187).
+
+### Self-check
+
+1. **Q:** big key 하나가 전체 지연을 만드는 이유는? **A:** 명령 실행이 main thread 하나라서, O(N) 명령이나 큰 키 삭제가 도는 동안 모든 client가 기다린다.
+2. **Q:** `DEL`과 `UNLINK`의 차이는? **A:** `DEL`은 main thread에서 바로 해제(O(M)), `UNLINK`는 키만 떼고(O(1)) 해제는 bio thread가 한다.
+3. **Q:** 큰 키가 TTL로 만료될 때도 막히나? **A:** 기본은 그렇다(`lazyfree-lazy-expire no`). 켜면 background에서 해제한다.
+4. **Q:** 운영에서 big key를 찾는 방법은? **A:** `redis-cli --bigkeys`/`--memkeys`(SCAN 기반). `KEYS *`는 쓰지 않는다.
+
+---
+
+## Lesson 8. `rdb`: fork 한 번으로 스냅샷
+
+**Goal.** See how a snapshot is written while the server keeps serving: `fork()`, shared pages, copy-on-write when the parent writes, and an atomic rename.
+
+**Critical path.** save point → `fork()` → the child writes a temp file while the parent serves (copy-on-write) → atomic rename to `dump.rdb`.
+
+**Interview and incident questions**
+- RDB 저장 중에도 요청을 받는 원리는? 메모리는 얼마나 더 필요한가?
+- fork가 왜 지연을 만들 수 있나?
+- RDB만 쓰면 무엇을 잃을 수 있나? `MISCONF`는 왜 나오나?
+
+**Nodes:** `client` (app), `main` (parent), `mem` (memory pages), `bg` (fork child), `disk`.
+
+**State panels**
+
+| Node | Panel | Initial rows |
+|---|---|---|
+| `main` | persistence | `dirty` = 99; `child` = none; `last bgsave` = ok |
+| `mem` | pages (E.G.) | `P1..P4` → parent |
+| `disk` | files | `dump.rdb` (previous snapshot) |
+
+**Layer selector:** `Process` · `Memory` · `File`.
+
+### Steps
+
+#### S1 · `mutate` main · 저장 조건을 만족했다
+- **Subtitle:** "300초 동안 변경 100번 이상" 같은 save point 하나에 닿으면 `BGSAVE`가 시작된다.
+- **Prose:**
+  > `serverCron`이 변경 수(`dirty`)와 마지막 저장 후 시간을 보고 save point에 닿으면 `BGSAVE`를 시작합니다.
+  > `BGSAVE` 명령으로 직접 시작할 수도 있습니다.
+- **Facts:**
+  - Default save points: `3600 1 300 100 60 10000` (seconds, changes); `save ""` disables
+  - Only one child (RDB or AOF rewrite) at a time
+- **Event log:** `main → main · Process · 100 changes in 300 seconds. Saving... · —`
+- **State (main: persistence):**
+  - before: `dirty` = 99; `child` = none; `last bgsave` = ok
+  - after: `dirty` = 100; `child` = starting; `last bgsave` = ok
+- **Sources:** [server.c#L2489-L2491](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2489-L2491), [redis.conf#L497-L506](https://github.com/redis/redis/blob/8.10.3/redis.conf#L497-L506), [server.c#L1700-L1727](https://github.com/redis/redis/blob/8.10.3/src/server.c#L1700-L1727), [rdb.c#L5473-L5507](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L5473-L5507)
+
+#### S2 · `mutate` main · `fork()` — 그 순간 main thread가 멈춘다
+- **Subtitle:** page table을 복사하는 동안 요청을 받지 못한다. 메모리가 클수록 길다.
+- **Prose:**
+  > 부모가 `fork()`로 자식을 만듭니다. 데이터가 크면 fork 자체가 수 ms에서 1초까지 걸리고, 그동안 요청을 받지 못합니다.
+  > 걸린 시간은 `INFO stats`의 `latest_fork_usec`에 남습니다.
+- **Facts:**
+  - Docs: fork "can be time consuming if the dataset is big … or even for one second"
+  - Measured in `latest_fork_usec`
+- **Event log:** `main → bg · Process · fork() pid 48213 (E.G.) · 12 ms (E.G.)`
+- **State (main: persistence):**
+  - before: `dirty` = 100; `child` = starting; `last bgsave` = ok
+  - after: `dirty` = 100; `child` = RDB pid 48213 (E.G.); `last bgsave` = ok
+- **Sources:** [persistence.md#L38](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L38), [server.c#L7497-L7566](https://github.com/redis/redis/blob/8.10.3/src/server.c#L7497-L7566), [server.c#L6790](https://github.com/redis/redis/blob/8.10.3/src/server.c#L6790)
+
+#### S3 · `mutate` mem · 부모와 자식이 같은 페이지를 본다
+- **Subtitle:** fork 직후에는 아무것도 복사되지 않는다.
+- **Prose:**
+  > fork 직후 두 프로세스는 같은 물리 메모리 페이지를 공유합니다. 자식은 fork 순간의 데이터를 그대로 보므로 lock 없이 일관된 스냅샷을 씁니다.
+- **Facts:**
+  - Docs: "This method allows Redis to benefit from copy-on-write semantics"
+  - The snapshot is the data at the moment of `fork()`
+- **Event log:** `bg → mem · Memory · share all pages with parent · 0 MB copied`
+- **State (mem: pages):**
+  - before: `P1..P4` → parent
+  - after: `P1..P4` → parent + child (shared)
+- **Sources:** [persistence.md#L91-L99](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L91-L99)
+
+#### S4 · `move` client → main · 저장 중에도 쓰기를 받는다
+- **Subtitle:** `SET user:1 bob`.
+- **Prose:**
+  > 부모는 저장 중에도 평소처럼 쓰기를 처리합니다. 디스크 I/O는 자식이 합니다.
+- **Token:** `request` · `SET user:1 bob`
+- **Facts:**
+  - Docs: "The parent process will never perform disk I/O" for RDB
+  - Writes during the save are not in this snapshot
+- **Event log:** `client → main · RESP2 · SET user:1 bob · 34 B`
+- **Sources:** [persistence.md#L31](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L31)
+
+#### S5 · `mutate` mem · 쓴 페이지만 복사된다 (copy-on-write)
+- **Subtitle:** 부모가 P3을 바꾸는 순간 커널이 P3을 복사한다. 쓰기가 많을수록 메모리가 늘어난다.
+- **Prose:**
+  > 공유 페이지에 처음 쓰는 순간 커널이 그 페이지를 복사합니다. 자식은 옛 P3을, 부모는 새 P3'을 봅니다.
+  > 저장 중 쓰기가 많으면 복사가 늘어 최악에는 메모리가 거의 두 배가 됩니다. 그래서 메모리 여유를 남겨 둡니다.
+- **Facts:**
+  - Copy size: `INFO persistence` `current_cow_size`, and `rdb_last_cow_size` after the save
+  - During a child, the keyspace dict avoids resizing to limit copies (lesson 2 S8)
+- **Event log:** `main → mem · Memory · page P3 copied · 4 KB (E.G.)`
+- **State (mem: pages):**
+  - before: `P1..P4` → parent + child (shared)
+  - after: `P1, P2, P4` → shared; `P3` → child; `P3'` → parent
+- **Sources:** [childinfo.c#L71-L82](https://github.com/redis/redis/blob/8.10.3/src/childinfo.c#L71-L82), [server.c#L6617-L6633](https://github.com/redis/redis/blob/8.10.3/src/server.c#L6617-L6633), [server.c#L819-L832](https://github.com/redis/redis/blob/8.10.3/src/server.c#L819-L832)
+
+#### S6 · `move` bg → disk · 자식이 임시 파일에 쓴다
+- **Subtitle:** `temp-<pid>.rdb`에 압축된 바이너리 스냅샷을 쓰고 fsync한다.
+- **Prose:**
+  > 자식은 fork 시점의 메모리를 압축된 바이너리 형식으로 `temp-<pid>.rdb`에 씁니다. 끝에 checksum을 붙이고 fsync합니다.
+  > 같은 형식이 replica full sync에도 쓰입니다(lesson 10).
+- **Token:** `data` · `temp-48213.rdb`
+- **Facts:**
+  - Compact binary, LZF-compressed by default (`rdbcompression yes`), with a CRC64 checksum
+  - Fast to load on restart compared with replaying an AOF
+- **Event log:** `bg → disk · File · write temp-48213.rdb · 1.2 GB, 9 s (E.G.)`
+- **Sources:** [rdb.c#L2180-L2215](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L2180-L2215), [redis.conf#L523-L536](https://github.com/redis/redis/blob/8.10.3/redis.conf#L523-L536), [persistence.md#L31-L36](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L31-L36)
+
+#### S7 · `mutate` disk · `rename()`으로 한 번에 바꾼다
+- **Subtitle:** 완성된 파일만 `dump.rdb`가 된다. 반쯤 쓴 RDB는 남지 않는다.
+- **Prose:**
+  > 다 쓴 임시 파일을 `rename()`으로 `dump.rdb`에 덮습니다. rename은 원자적이라 언제 복사해도 완전한 파일입니다. 백업은 이 파일을 복사하면 됩니다.
+- **Facts:**
+  - Docs: "renamed into its final destination atomically using rename(2)"
+  - Safe to copy for backups while Redis runs
+- **Event log:** `bg → disk · File · rename temp-48213.rdb → dump.rdb · —`
+- **State (disk: files):**
+  - before: `dump.rdb` (previous snapshot); `temp-48213.rdb` (complete)
+  - after: `dump.rdb` (new snapshot)
+- **Sources:** [rdb.c#L2180-L2215](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L2180-L2215), [persistence.md#L321-L324](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L321-L324)
+
+#### S8 · `mutate` main · 끝: 상태와 COW 크기를 기록
+- **Subtitle:** 자식이 종료하면 부모가 저장 시각, 성공 여부, COW 크기를 기록한다.
+- **Prose:**
+  > 자식이 끝나면 부모가 `lastsave`와 성공 여부를 기록하고, 저장 중 생긴 변경만 `dirty`에 남깁니다.
+  > 운영에서는 `INFO persistence`로 상태를 확인합니다.
+- **Facts:**
+  - Log: `Background saving terminated with success`
+  - `dirty` keeps only the changes made during the save
+- **Event log:** `bg → main · Process · child exit 0, COW peak 38 MB (E.G.) · 9.4 s (E.G.)`
+- **State (main: persistence):**
+  - before: `dirty` = 100; `child` = RDB pid 48213 (E.G.); `last bgsave` = ok
+  - after: `dirty` = 40 (E.G.); `child` = none; `last bgsave` = ok, now
+- **Record:** D8.1 (`wire`)
+- **Sources:** [rdb.c#L5184-L5212](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L5184-L5212), [server.c#L6617-L6633](https://github.com/redis/redis/blob/8.10.3/src/server.c#L6617-L6633)
+
+#### S9 · `mutate` main · 저장이 실패하면 쓰기를 막는다 (side path)
+- **Subtitle:** 디스크가 꽉 차 `BGSAVE`가 실패하면 쓰기 명령이 `-MISCONF`를 받는다.
+- **Prose:**
+  > 마지막 `BGSAVE`가 실패하면 기본 설정에서는 쓰기를 거절합니다. 저장이 안 되는 줄 모르고 쓰는 것을 막기 위해서입니다. 다음 저장이 성공하면 풀립니다.
+  > RDB만 쓰면 마지막 스냅샷 이후 몇 분치 쓰기를 잃을 수 있습니다.
+- **Facts:**
+  - `stop-writes-on-bgsave-error`: yes
+  - Error begins `-MISCONF Redis is configured to save RDB snapshots, but it's currently unable to persist to disk.`
+  - Docs: with RDB "you should be prepared to lose the latest minutes of data"
+- **Event log:** `client → main · RESP2 · SET x 1 → -MISCONF … · —`
+- **State (main: persistence):**
+  - before: `dirty` = 40 (E.G.); `child` = none; `last bgsave` = ok, now
+  - after: `dirty` = 40; `child` = none; `last bgsave` = err (disk full), writes → `-MISCONF`
+- **Sources:** [redis.conf#L521](https://github.com/redis/redis/blob/8.10.3/redis.conf#L521), [server.c#L2244](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2244), [persistence.md#L37](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L37)
+
+### Replay
+
+S1 → S2 → S3 → S4 → S5 → S6 → S7: main (save point) → bg (fork) → mem (shared) → client write → mem (copy) → disk (temp) → disk (rename).
+
+### Decoder records
+
+**D8.1 · step S8 · `wire` · `INFO persistence` lines an engineer reads (part of a bulk-string reply).**
+
+| Field | Example | Meaning |
+|---|---|---|
+| `rdb_changes_since_last_save` | `40` (E.G.) | `dirty`: writes not yet in a snapshot |
+| `rdb_bgsave_in_progress` | `0` | 1 while a child is saving |
+| `rdb_last_save_time` | `1793750409` (E.G.) | Unix time of the last successful save |
+| `rdb_last_bgsave_status` | `ok` | `err` → writes may be refused (`MISCONF`) |
+| `rdb_last_cow_size` | `39845888` (E.G.) | bytes copied by copy-on-write during the last save |
+
+`latest_fork_usec` is in `INFO stats`. Sources: [server.c#L6617-L6633](https://github.com/redis/redis/blob/8.10.3/src/server.c#L6617-L6633), [server.c#L6790](https://github.com/redis/redis/blob/8.10.3/src/server.c#L6790).
+
+### Self-check
+
+1. **Q:** RDB 저장 중에도 쓰기를 받을 수 있는 원리는? **A:** fork한 자식이 fork 순간의 메모리를 쓰고, 부모는 계속 처리한다. 부모가 바꾼 페이지만 copy-on-write로 복사된다.
+2. **Q:** RDB 때문에 메모리가 부족해질 수 있는 이유는? **A:** 저장 중 쓰기가 많으면 복사된 페이지만큼 메모리가 늘어난다. 최악에는 거의 두 배.
+3. **Q:** `-MISCONF`가 나오면 무엇을 보나? **A:** `rdb_last_bgsave_status:err`와 로그의 저장 실패 원인(디스크 공간 등).
+
+---
+
+## Lesson 9. `aof`: 모든 쓰기를 기록한다
+
+**Goal.** Follow one write into the AOF buffer, to the file before the reply, and onto the disk under the fsync policy. Then watch a rewrite replace the base while new writes keep going to a fresh incremental file.
+
+**Critical path.** write → AOF buffer → `write()` before the reply → `fsync` per policy → rewrite into a new BASE + INCR.
+
+**Interview and incident questions**
+- `appendfsync` 세 가지와 각각 잃을 수 있는 데이터는?
+- 디스크가 느리면 Redis가 왜 느려지나?
+- AOF rewrite는 왜, 어떻게 하나?
+- 실수로 `FLUSHALL`했다. AOF로 되살릴 수 있나?
+
+**Overview (one line).** 8.10부터 MP-AOF 파일 묶음을 그대로 백업하는 `BACKUP` 명령이 있다(persistence docs).
+
+**Nodes:** `client` (app), `main`, `bg` (bio fsync thread, then the rewrite child), `disk` (`appendonlydir/`).
+
+**State panels**
+
+| Node | Panel | Initial rows |
+|---|---|---|
+| `main` | AOF | `policy` = everysec; `aof_buf` = ""; `fsync 대기` = no |
+| `disk` | appendonlydir | `base` = appendonly.aof.1.base.rdb; `incr` = [appendonly.aof.1.incr.aof]; `fsync된 범위` = 이전 쓰기 전부 |
+
+**Layer selector:** `Command` · `Buffer` · `Disk`.
+
+### Steps
+
+#### S1 · `move` client → main · `SET user:1 alice EX 60`
+- **Subtitle:** 실행이 먼저, 기록은 그다음.
+- **Prose:**
+  > AOF는 명령을 실행한 뒤 기록합니다. 데이터를 바꾼 명령만 남고, 읽기나 실패한 명령은 남지 않습니다.
+- **Token:** `request` · `SET user:1 alice EX 60`
+- **Facts:**
+  - `appendonly`: no by default
+  - AOF and replicas receive the same propagated commands
+- **Event log:** `client → main · RESP2 · SET user:1 alice EX 60 · 52 B`
+- **Sources:** [redis.conf#L1491](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1491), [aof.c#L1686-L1688](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1686-L1688)
+
+#### S2 · `mutate` main · AOF buffer에 RESP 그대로 붙인다
+- **Subtitle:** `EX 60`은 `PXAT <절대 ms>`로 바뀌어 기록된다. 재생해도 만료 시각이 같다.
+- **Prose:**
+  > 명령은 RESP 텍스트 그대로 AOF buffer에 붙습니다. DB가 바뀌면 앞에 `SELECT`가 들어갑니다.
+  > 상대 TTL은 절대 시각으로 바뀌어, 나중에 재생해도 같은 순간에 만료됩니다.
+- **Facts:**
+  - `SET … EX 60` is logged as `SET … PXAT <ms>`
+  - The file is plain RESP text: it can be read and edited by hand
+- **Event log:** `main → main · Buffer · feedAppendOnlyFile SELECT 0 + SET … PXAT · 89 B`
+- **State (main: AOF):**
+  - before: `policy` = everysec; `aof_buf` = ""; `fsync 대기` = no
+  - after: `policy` = everysec; `aof_buf` = SELECT 0 + SET user:1 alice PXAT 1793750460000 (89 B); `fsync 대기` = no
+- **Record:** D9.1 (`not wire`)
+- **Sources:** [t_string.c#L193-L205](https://github.com/redis/redis/blob/8.10.3/src/t_string.c#L193-L205), [aof.c#L1609-L1631](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1609-L1631), [aof.c#L1674-L1684](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1674-L1684)
+
+#### S3 · `move` main → disk · 응답 전에 `write()`
+- **Subtitle:** 잠들기 전 `beforeSleep`이 buffer를 파일에 쓰고, 그다음 응답을 보낸다.
+- **Prose:**
+  > main thread는 응답을 보내기 전에 AOF buffer를 파일에 `write()`합니다.
+  > `write()`는 커널의 page cache까지만 갑니다. 정전에도 남으려면 `fsync()`가 필요합니다.
+- **Token:** `data` · `aof_buf 89 B`
+- **Facts:**
+  - Order in `beforeSleep`: AOF flush, then replies
+  - `write()` reaches the page cache; durability needs `fsync()`
+- **Event log:** `main → disk · Disk · write(appendonly.aof.1.incr.aof) · 89 B`
+- **Sources:** [server.c#L2053-L2057](https://github.com/redis/redis/blob/8.10.3/src/server.c#L2053-L2057), [persistence.md#L159-L166](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L159-L166)
+
+#### S4 · `move` main → bg · `everysec`: 1초마다 background fsync
+- **Subtitle:** main thread는 fsync하지 않고 bio thread에 맡긴다.
+- **Prose:**
+  > 기본 `everysec`에서는 마지막 fsync 후 1초가 지났고 진행 중인 fsync가 없으면 bio thread에 fsync를 맡깁니다.
+  > main thread는 디스크를 기다리지 않습니다.
+- **Token:** `call` · `fsync job`
+- **Facts:**
+  - `appendfsync`: everysec
+  - Docs: "fsync is performed using a background thread"
+- **Event log:** `main → bg · Disk · bio fsync job · —`
+- **Sources:** [config.c#L3492](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3492), [aof.c#L1224-L1235](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1224-L1235), [aof.c#L1598-L1604](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1598-L1604), [persistence.md#L42](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L42)
+
+#### S5 · `mutate` disk · 디스크에 남았다
+- **Subtitle:** 정책에 따라 잃을 수 있는 범위가 다르다.
+- **Prose:**
+  > fsync가 끝나면 그때까지의 쓰기는 정전에도 남습니다.
+  > `always`는 응답 전에 fsync(가장 안전, 느림), `everysec`은 약 1초를 잃을 수 있고, `no`는 OS에 맡깁니다(Linux는 보통 30초).
+- **Facts:**
+  - `always`: fsync before replying; `everysec`: up to about 1 s lost; `no`: Linux flushes about every 30 s
+  - `everysec` is the documented compromise
+- **Event log:** `bg → disk · Disk · fsync appendonly.aof.1.incr.aof · 2 ms (E.G.)`
+- **State (disk: appendonlydir):**
+  - before: `base` = appendonly.aof.1.base.rdb; `incr` = [appendonly.aof.1.incr.aof]; `fsync된 범위` = 이전 쓰기 전부
+  - after: `base` = appendonly.aof.1.base.rdb; `incr` = [appendonly.aof.1.incr.aof]; `fsync된 범위` = SET user:1 alice까지
+- **Sources:** [persistence.md#L159-L166](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L159-L166), [redis.conf#L1538-L1551](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1538-L1551)
+
+#### S6 · `mutate` main · 디스크가 느리면 write를 미룬다 (side path)
+- **Subtitle:** 이전 fsync가 2초 안에 안 끝나면 기다리지 않고 쓴다. 이 경고 로그가 장애 신호다.
+- **Prose:**
+  > 이전 fsync가 진행 중이면 `write()`가 커널에서 막힐 수 있어 최대 2초 미룹니다. 2초가 넘으면 그냥 쓰고 경고를 남깁니다.
+  > 이 로그가 보이면 디스크가 느리다는 뜻이고, 손실 범위는 1초보다 길어집니다.
+- **Facts:**
+  - Log: `Asynchronous AOF fsync is taking too long (disk is busy?). …`
+  - Counter: `aof_delayed_fsync` in `INFO persistence`
+- **Event log:** `main → main · Buffer · flush postponed, fsync still running · 2000 ms`
+- **State (main: AOF):**
+  - before: `policy` = everysec; `aof_buf` = SELECT 0 + SET user:1 alice PXAT 1793750460000 (89 B); `fsync 대기` = no
+  - after: `policy` = everysec; `aof_buf` = 쌓이는 중; `fsync 대기` = yes, 2 s 초과 → 강제 write, `aof_delayed_fsync` +1
+- **Sources:** [aof.c#L1437-L1457](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1437-L1457), [server.c#L6660](https://github.com/redis/redis/blob/8.10.3/src/server.c#L6660)
+
+#### S7 · `mutate` disk · rewrite 시작: 새 INCR 파일부터 연다
+- **Subtitle:** AOF가 base의 2배를 넘고 64 MB 이상이면 rewrite. 부모가 먼저 새 incremental 파일을 연다.
+- **Prose:**
+  > AOF는 같은 키를 여러 번 바꾼 기록이 쌓여 커집니다. rewrite는 현재 메모리로 새 base를 만들어 줄입니다.
+  > 부모가 먼저 새 INCR 파일을 열고, 이후 쓰기는 그 파일로 갑니다. 그래서 rewrite 중 쓰기를 따로 모을 필요가 없습니다.
+- **Facts:**
+  - Trigger: `auto-aof-rewrite-percentage` 100 and `auto-aof-rewrite-min-size` 64mb; or `BGREWRITEAOF`
+  - Files: BASE (snapshot), INCR (later writes), manifest (which files, in order)
+- **Event log:** `main → disk · Disk · open appendonly.aof.2.incr.aof, update manifest · —`
+- **State (disk: appendonlydir):**
+  - before: `base` = appendonly.aof.1.base.rdb; `incr` = [appendonly.aof.1.incr.aof]; `fsync된 범위` = SET user:1 alice까지
+  - after: `base` = appendonly.aof.1.base.rdb; `incr` = [appendonly.aof.1.incr.aof, appendonly.aof.2.incr.aof (new writes)]; `fsync된 범위` = SET user:1 alice까지
+- **Sources:** [redis.conf#L1591-L1592](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1591-L1592), [server.c#L1730-L1742](https://github.com/redis/redis/blob/8.10.3/src/server.c#L1730-L1742), [aof.c#L3183-L3196](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L3183-L3196), [aof.c#L44-L71](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L44-L71), [persistence.md#L146-L151](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L146-L151)
+
+#### S8 · `move` main → bg · 자식이 새 BASE를 쓴다
+- **Subtitle:** fork한 자식이 fork 시점 메모리를 RDB 형식으로 쓴다.
+- **Prose:**
+  > 부모는 fork하고 자식이 새 base를 씁니다. 기본으로 RDB 형식(`aof-use-rdb-preamble yes`)이라 작고 load가 빠릅니다.
+  > RDB와 같은 fork와 copy-on-write 비용이 듭니다(lesson 8).
+- **Token:** `call` · `fork → rewrite`
+- **Facts:**
+  - `aof-use-rdb-preamble`: yes
+  - Same fork and copy-on-write cost as RDB
+- **Event log:** `main → bg · Disk · fork, write temp-rewriteaof-bg-48990.aof · 21 MB (E.G.)`
+- **Sources:** [aof.c#L3218-L3245](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L3218-L3245), [aof.c#L3139-L3163](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L3139-L3163), [redis.conf#L1640](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1640), [persistence.md#L224-L225](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L224-L225)
+
+#### S9 · `mutate` disk · manifest를 원자적으로 바꾸고 옛 파일을 지운다
+- **Subtitle:** 새 BASE + 새 INCR가 현재 AOF가 된다. 옛 BASE와 옛 INCR는 history로 지워진다.
+- **Prose:**
+  > rewrite가 끝나면 임시 파일을 새 base 이름으로 바꾸고, manifest를 임시 파일 + `rename()`으로 교체합니다.
+  > 옛 base와 rewrite에 포함된 INCR는 history가 되어 background에서 지워집니다.
+- **Facts:**
+  - Manifest line: `file <name> seq <n> type <b|h|i>`
+  - Replaced via temp file + `rename()`, so a crash leaves the old or the new manifest, never a mix
+- **Event log:** `main → disk · Disk · manifest → 2.base.rdb + 2.incr.aof, history deleted · —`
+- **State (disk: appendonlydir):**
+  - before: `base` = appendonly.aof.1.base.rdb; `incr` = [appendonly.aof.1.incr.aof, appendonly.aof.2.incr.aof (new writes)]; `fsync된 범위` = SET user:1 alice까지
+  - after: `base` = appendonly.aof.2.base.rdb; `incr` = [appendonly.aof.2.incr.aof]; `fsync된 범위` = SET user:1 alice까지
+- **Sources:** [aof.c#L3847-L3946](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L3847-L3946), [aof.c#L576-L600](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L576-L600), [aof.c#L123-L135](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L123-L135)
+
+#### S10 · `move` disk → main · 재시작: BASE를 읽고 INCR를 재생한다
+- **Subtitle:** 끝이 잘린 마지막 파일은 잘라내고 시작한다.
+- **Prose:**
+  > 재시작하면 manifest 순서대로 base를 load하고 INCR의 명령을 재생합니다.
+  > 정전으로 마지막 명령이 잘렸으면 `aof-load-truncated yes`에 따라 그 부분을 버리고 시작합니다. 실수로 보낸 `FLUSHALL`은 rewrite 전이라면 AOF에서 그 줄을 지우고 재시작해 되살릴 수 있습니다.
+- **Token:** `data` · `manifest → base → incr`
+- **Facts:**
+  - `aof-load-truncated`: yes (last file only)
+  - Repair tool: `redis-check-aof --fix`
+- **Event log:** `disk → main · Disk · load 2.base.rdb + replay 2.incr.aof · 1.4 s (E.G.)`
+- **Sources:** [persistence.md#L45](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L45), [aof.c#L2041-L2056](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L2041-L2056), [aof.c#L2158-L2162](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L2158-L2162), [redis.conf#L1616](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1616), [persistence.md#L192-L220](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/persistence.md#L192-L220)
+
+### Replay
+
+S1 → S2 → S3 → S4 → S5: client → main (buffer) → disk (`write`) → bg (`fsync`) → disk (durable).
+
+### Decoder records
+
+**D9.1 · step S2 · `not wire` (file content) · what `SET user:1 alice EX 60` adds to the INCR file.**
+
+| Text | Field | Meaning |
+|---|---|---|
+| `*2\r\n$6\r\nSELECT\r\n$1\r\n0\r\n` | SELECT | db 0; written when the db changes |
+| `*5\r\n$3\r\nSET\r\n$6\r\nuser:1\r\n$5\r\nalice\r\n` | command, key, value | |
+| `$4\r\nPXAT\r\n$13\r\n1793750460000\r\n` | expiry | `EX 60` became an absolute ms deadline (E.G.) |
+
+89 bytes in total. Sources: [aof.c#L1609-L1631](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1609-L1631), [aof.c#L1674-L1684](https://github.com/redis/redis/blob/8.10.3/src/aof.c#L1674-L1684), [t_string.c#L193-L205](https://github.com/redis/redis/blob/8.10.3/src/t_string.c#L193-L205).
+
+### Self-check
+
+1. **Q:** `appendfsync` 세 가지와 손실 범위는? **A:** `always` 응답 전 fsync(거의 없음, 느림), `everysec` 약 1초(기본), `no` OS 의존(Linux 약 30초).
+2. **Q:** "Asynchronous AOF fsync is taking too long" 로그의 의미는? **A:** fsync가 2초 넘게 안 끝나 write를 강제로 했다. 디스크가 느리고, 손실 범위가 1초보다 길어졌다.
+3. **Q:** rewrite 중의 새 쓰기는 어디로 가나? **A:** fork 전에 부모가 연 새 INCR 파일로. 끝나면 manifest가 새 BASE + 그 INCR를 가리킨다.
+
+---
+
+## Lesson 10. `replication`: replid와 offset으로 따라잡기
+
+**Goal.** Follow a replica from its first full sync through async streaming to a reconnect that resumes from the backlog, and see what a failover keeps and loses.
+
+**Critical path.** `PSYNC` → full sync (RDB + buffered writes) → async stream → reconnect from the backlog.
+
+**Interview and incident questions**
+- 복제는 동기인가 비동기인가? `+OK`를 받은 쓰기도 잃을 수 있나?
+- full sync와 partial resync는 언제 일어나나? backlog 크기는 왜 중요한가?
+- replica가 full sync를 끝없이 반복하는 원인은?
+- failover 뒤 다른 replica가 full sync 없이 따라오는 이유는?
+
+**Overview (one line).** 8.x 기본 설정(diskless sync)에서는 RDB를 두 번째 연결로 보내고, 그동안의 쓰기는 replica 쪽에 쌓는다(replication.c 설명 주석).
+
+**Nodes:** `client` (app), `main` (master), `peer1` (replica 1), `peer2` (replica 2).
+
+**State panels**
+
+| Node | Panel | Initial rows |
+|---|---|---|
+| `main` | master | `replid` = 8de1…b761 (E.G.); `offset` = 1048576 (E.G.); `backlog` = 1 MB; `replica-1 buffer` = — |
+| `peer1` | replica 1 | `state` = connecting; `master replid` = —; `offset` = — |
+| `peer2` | replica 2 | `state` = online; `master replid` = 8de1…b761; `offset` = 1048576 |
+
+**Layer selector:** `Handshake` · `Full sync` · `Stream` · `Failover`.
+
+### Steps
+
+#### S1 · `move` peer1 → main · `PSYNC ? -1`
+- **Subtitle:** `PING`과 `REPLCONF` 뒤, 처음 붙는 replica는 이력이 없으니 full sync를 요청한다.
+- **Prose:**
+  > replica는 `PING`, 인증, `REPLCONF`로 자신을 알린 뒤 `PSYNC <replid> <offset>`을 보냅니다.
+  > 처음이라 아는 이력이 없으므로 `PSYNC ? -1`입니다.
+- **Token:** `request` · `PSYNC ? -1`
+- **Facts:**
+  - (replid, offset) identifies an exact version of the master's data
+  - Reconnect form: `PSYNC <cached replid> <cached offset + 1>`
+- **Event log:** `peer1 → main · Handshake · PSYNC ? -1 · 30 B`
+- **Sources:** [replication.md#L74-L90](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L74-L90), [replication.c#L2965-L2983](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L2965-L2983)
+
+#### S2 · `move` main → peer1 · `+FULLRESYNC <replid> <offset>`
+- **Subtitle:** master가 자기 replid와 현재 offset을 알려 주고 RDB를 준비한다.
+- **Prose:**
+  > master는 `+FULLRESYNC <replid> <offset>`으로 답합니다. replica는 이 replid와 offset부터 따라가게 됩니다.
+- **Token:** `response` · `+FULLRESYNC 8de1…b761 1048576`
+- **Facts:**
+  - `replid`: 40 hex characters, random per data history
+  - `offset`: bytes of replication stream produced so far
+- **Event log:** `main → peer1 · Handshake · +FULLRESYNC 8de1…b761 1048576 (E.G.) · 62 B`
+- **Record:** D10.1 (`wire`)
+- **Sources:** [replication.c#L992-L993](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L992-L993), [server.h#L133](https://github.com/redis/redis/blob/8.10.3/src/server.h#L133)
+
+#### S3 · `mutate` main · RDB를 만들며 새 쓰기는 replica buffer에 쌓는다
+- **Subtitle:** fork해서 RDB를 만들고, 그동안 들어온 쓰기는 그 replica의 output buffer에 모은다.
+- **Prose:**
+  > master는 RDB를 만들고(기본은 disk 없이 socket으로 바로), 그동안의 쓰기를 replica 연결의 output buffer에 쌓습니다.
+  > 쓰기가 많아 buffer가 한도를 넘으면 연결이 끊기고 full sync를 다시 시작합니다. 끝없는 full sync 반복의 흔한 원인입니다.
+- **Facts:**
+  - `repl-diskless-sync`: yes; waits `repl-diskless-sync-delay` 5 s for other replicas
+  - Replica buffer limit: `256mb 64mb 60` (hard; soft for 60 s)
+- **Event log:** `main → main · Full sync · fork for SYNC, buffer writes for replica-1 · —`
+- **State (main: master):**
+  - before: `replid` = 8de1…b761; `offset` = 1048576; `backlog` = 1 MB; `replica-1 buffer` = —
+  - after: `replid` = 8de1…b761; `offset` = 1050000 (E.G.); `backlog` = 1 MB; `replica-1 buffer` = 1.4 KB writes since 1048576 (E.G.)
+- **Sources:** [replication.md#L94](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L94), [redis.conf#L679-L691](https://github.com/redis/redis/blob/8.10.3/redis.conf#L679-L691), [redis.conf#L2474-L2476](https://github.com/redis/redis/blob/8.10.3/redis.conf#L2474-L2476)
+
+#### S4 · `move` main → peer1 · RDB 전송
+- **Subtitle:** 스냅샷을 통째로 보낸다. 데이터가 크면 네트워크와 시간이 많이 든다.
+- **Prose:**
+  > master가 RDB를 replica에 보냅니다. 데이터 크기만큼 네트워크를 쓰고, master는 그동안 fork 비용과 buffer 메모리를 씁니다.
+- **Token:** `data` · `RDB 1.2 GB (E.G.)`
+- **Facts:**
+  - Same RDB format as `dump.rdb` (lesson 8)
+  - Disk-less transfer is framed with an `$EOF:<40 random chars>` marker instead of a length
+- **Event log:** `main → peer1 · Full sync · RDB · 1.2 GB, 14 s (E.G.)`
+- **Sources:** [rdb.c#L2083-L2098](https://github.com/redis/redis/blob/8.10.3/src/rdb.c#L2083-L2098), [replication.md#L152-L154](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L152-L154)
+
+#### S5 · `mutate` peer1 · 옛 데이터를 지우고 load한 뒤 밀린 쓰기를 적용
+- **Subtitle:** 기존 데이터를 비우는 동안 replica는 막힐 수 있다. load가 끝나면 buffer의 쓰기를 적용한다.
+- **Prose:**
+  > replica는 옛 데이터를 지우고 RDB를 load합니다. 데이터가 크면 지우는 동안 몇 초 막힐 수 있습니다(`replica-lazy-flush`로 background에서 지울 수 있음).
+  > load 후 master가 쌓아 둔 쓰기를 받아 적용하면 online입니다.
+- **Facts:**
+  - Docs: the replica "will block incoming connections during this brief window"
+  - `repl-diskless-load`: disabled (the replica saves the RDB to disk, then loads it)
+- **Event log:** `peer1 → peer1 · Full sync · flush, load RDB, apply 1.4 KB · 6 s (E.G.)`
+- **State (peer1: replica 1):**
+  - before: `state` = connecting; `master replid` = —; `offset` = —
+  - after: `state` = online; `master replid` = 8de1…b761; `offset` = 1050000 (E.G.)
+- **Sources:** [replication.md#L48](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L48), [redis.conf#L718-L732](https://github.com/redis/redis/blob/8.10.3/redis.conf#L718-L732)
+
+#### S6 · `move` main → peer1 · 평상시: 명령을 그대로 흘려보낸다
+- **Subtitle:** master는 client에 먼저 답하고, 같은 명령을 replica로 보낸다.
+- **Prose:**
+  > client의 `SET user:1 alice`에 master는 바로 `+OK`를 답합니다. 같은 명령을 RESP 그대로 replica에 보내고, offset이 그 바이트 수만큼 늘어납니다.
+  > master는 replica를 기다리지 않습니다(비동기).
+- **Token:** `data` · `SET user:1 alice` (36 B)
+- **Facts:**
+  - Docs: "the master does not wait every time for a command to be processed by the replicas"
+  - `master_repl_offset` grows by the bytes sent
+- **Event log:** `main → peer1 · Stream · *3 SET user:1 alice · 36 B`
+- **Sources:** [replication.md#L25-L30](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L25-L30), [replication.c#L596](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L596)
+
+#### S7 · `mutate` peer1 · 따라잡고 매초 ACK
+- **Subtitle:** replica는 처리한 offset을 1초마다 알린다. 두 offset의 차이가 replica lag이다.
+- **Prose:**
+  > replica는 받은 만큼 offset을 올리고 1초마다 `REPLCONF ACK <offset>`을 보냅니다.
+  > 운영에서는 `INFO replication`의 offset 차이와 `lag`으로 지연을 봅니다.
+- **Facts:**
+  - ACK every second; master PINGs replicas every 10 s (`repl-ping-replica-period`)
+  - `repl-timeout`: 60 s
+- **Event log:** `peer1 → main · Stream · REPLCONF ACK 1050036 · 40 B`
+- **State (peer1: replica 1):**
+  - before: `state` = online; `master replid` = 8de1…b761; `offset` = 1050000
+  - after: `state` = online; `master replid` = 8de1…b761; `offset` = 1050036
+- **Record:** D10.2 (`wire`)
+- **Sources:** [replication.md#L251](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L251), [server.c#L1778-L1780](https://github.com/redis/redis/blob/8.10.3/src/server.c#L1778-L1780), [config.c#L3531-L3532](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3531-L3532), [server.c#L6957-L6972](https://github.com/redis/redis/blob/8.10.3/src/server.c#L6957-L6972)
+
+#### S8 · `move` peer1 → main · 잠깐 끊겼다 다시 붙는다
+- **Subtitle:** `PSYNC 8de1…b761 1050037` — 마지막으로 받은 다음 바이트부터 달라고 한다.
+- **Prose:**
+  > 네트워크가 잠깐 끊긴 동안에도 master는 쓰기를 받고, 그 바이트들은 backlog에 남습니다.
+  > 다시 붙은 replica는 기억한 replid와 offset+1로 `PSYNC`를 보냅니다.
+- **Token:** `request` · `PSYNC 8de1…b761 1050037`
+- **Facts:**
+  - The backlog is allocated once a replica has connected, and keeps recording while replicas are disconnected
+  - `repl-backlog-ttl`: 3600 s after the last replica disconnects
+- **Event log:** `peer1 → main · Handshake · PSYNC 8de1…b761 1050037 · 75 B`
+- **Sources:** [replication.md#L85-L90](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L85-L90), [redis.conf#L777-L792](https://github.com/redis/redis/blob/8.10.3/redis.conf#L777-L792)
+
+#### S9 · `mutate` main · backlog 안이면 `+CONTINUE`, 밖이면 full sync
+- **Subtitle:** 끊긴 동안의 쓰기가 backlog(기본 1 MB)에 다 있으면 빠진 부분만 보낸다.
+- **Prose:**
+  > replid가 같고 요청 offset이 backlog 범위 안이면 `+CONTINUE`로 빠진 바이트만 보냅니다.
+  > 끊긴 동안 1 MB보다 많이 쓰였으면 full sync입니다. 쓰기가 많은 서비스는 backlog를 늘립니다.
+- **Facts:**
+  - `repl-backlog-size`: 1mb
+  - Size it to cover write rate × the longest expected disconnect
+- **Event log:** `main → peer1 · Stream · +CONTINUE, send 2.1 KB from backlog (E.G.) · —`
+- **State (main: master):**
+  - before: `replid` = 8de1…b761; `offset` = 1050000 (E.G.); `backlog` = 1 MB; `replica-1 buffer` = 1.4 KB writes since 1048576 (E.G.)
+  - after: `replid` = 8de1…b761; `offset` = 1052100 (E.G.); `backlog` = 1 MB, covers 1050037 → `+CONTINUE`; `replica-1 buffer` = —
+- **Sources:** [replication.c#L1019-L1075](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L1019-L1075), [config.c#L3585](https://github.com/redis/redis/blob/8.10.3/src/config.c#L3585), [replication.md#L85-L90](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L85-L90)
+
+#### S10 · `mutate` peer1 · failover: 승격하며 옛 replid를 기억한다 (side path)
+- **Subtitle:** master가 죽고 replica 1이 승격된다. 옛 replid를 replid2로 남겨 replica 2가 partial resync할 수 있다.
+- **Prose:**
+  > 승격된 replica는 새 replid를 만들고 옛 replid를 replid2로 기억합니다. 옛 ID로 오는 replica 2의 `PSYNC`도 받아 줄 수 있어 full sync가 필요 없습니다.
+  > 다만 복제되기 전에 master가 받은 쓰기는 사라집니다. 비동기 복제이기 때문입니다.
+- **Facts:**
+  - New master: `replid2` = old `replid`, accepted up to the switch offset
+  - Docs: `WAIT` does not prevent losing acknowledged writes during a failover
+- **Event log:** `peer1 → peer1 · Failover · promoted, replid c0ff…ee01, replid2 8de1…b761 (E.G.) · —`
+- **State (peer1: replica 1):**
+  - before: `state` = online; `master replid` = 8de1…b761; `offset` = 1050036
+  - after: `state` = master; `master replid` = c0ff…ee01 (replid2 8de1…b761); `offset` = 1052100 (E.G.)
+- **Sources:** [replication.md#L126-L144](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L126-L144), [replication.c#L2142-L2151](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L2142-L2151), [replication.md#L32-L37](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/replication.md#L32-L37)
+
+### Replay
+
+S1 → S2 → S3 → S4 → S5 → S6: peer1 → main (`PSYNC`) → peer1 (`+FULLRESYNC`) → main (RDB + buffer) → peer1 (RDB) → peer1 (load) → stream.
+
+### Decoder records
+
+**D10.1 · step S2 · `wire` · `+FULLRESYNC` reply (62 B).**
+
+| Text | Field | Meaning |
+|---|---|---|
+| `+FULLRESYNC` | type and keyword | a full sync follows |
+| `8de1787ba490483314a4d30f1c628bc5025eb761` | replid | 40 hex characters (E.G.) |
+| `1048576` | offset | where the replica will start following (E.G.) |
+
+Partial resync reply: `+CONTINUE <replid>\r\n`. Sources: [replication.c#L992-L993](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L992-L993), [replication.c#L1071-L1075](https://github.com/redis/redis/blob/8.10.3/src/replication.c#L1071-L1075).
+
+**D10.2 · step S7 · `wire` · `INFO replication` on the master (lines an engineer reads).**
+
+| Line | Example | Meaning |
+|---|---|---|
+| `role` | `master` | |
+| `connected_slaves` | `2` | |
+| `slave0` | `ip=10.0.1.5,port=6379,state=online,offset=1050036,lag=0` (E.G.) | per-replica state, acked offset, seconds since last ACK |
+| `master_replid` | `8de1…b761` (E.G.) | current history id |
+| `master_repl_offset` | `1050036` (E.G.) | master offset; minus a replica's offset = bytes behind |
+| `repl_backlog_size` | `1048576` | backlog size in bytes |
+
+Source: [server.c#L6848-L6972](https://github.com/redis/redis/blob/8.10.3/src/server.c#L6848-L6972).
+
+### Self-check
+
+1. **Q:** partial resync가 되는 조건은? **A:** replid가 같고(또는 failover 후 replid2), 요청 offset이 backlog 범위 안일 때. 기본 backlog는 1 MB.
+2. **Q:** replica가 full sync를 계속 반복하는 흔한 원인 두 가지는? **A:** full sync 중 replica output buffer 한도(256mb/64mb 60s) 초과, 그리고 backlog보다 많은 쓰기가 쌓이는 긴 단절.
+3. **Q:** failover 뒤 다른 replica가 full sync 없이 따라오는 이유는? **A:** 새 master가 옛 replid를 replid2로 기억해 옛 ID로 온 `PSYNC`를 받아 준다.
+
+---
+
+## Lesson 11. `sentinel`: 누가 master의 죽음을 판정하나
+
+**Goal.** See how three Sentinels decide that a master is down (one opinion, then agreement), elect one of themselves to act, promote the best replica, and point clients at the new master.
+
+**Critical path.** PING timeout → SDOWN → quorum → ODOWN → majority elects a leader → promote a replica → clients switch.
+
+**Interview and incident questions**
+- Sentinel은 왜 최소 3개를 서로 다른 장비에 두나?
+- quorum과 majority의 차이는?
+- 어떤 replica가 승격되나?
+- failover 뒤 client는 새 master를 어떻게 알게 되나? 잃는 쓰기는?
+
+**Nodes:** `client` (Sentinel-aware app), `main` (master), `peer1` (replica 1), `peer2` (replica 2), `sen1`, `sen2`, `sen3`.
+
+**State panels**
+
+| Node | Panel | Initial rows |
+|---|---|---|
+| `sen1` | view of mymaster | `상태` = ok; `동의` = —; `epoch` = 6; `leader` = —; `승격 대상` = — |
+| `client` | master address | `mymaster` = 10.0.0.1:6379 (E.G.) |
+| `main` | old master | `role` = master; `상태` = — |
+
+**Layer selector:** `Detect` · `Elect` · `Promote` · `Clients`.
+
+### Steps
+
+#### S1 · `move` sen1 → main · 매초 PING
+- **Subtitle:** Sentinel은 master, replica, 다른 Sentinel에게 1초마다 PING한다.
+- **Prose:**
+  > 각 Sentinel은 master와 replica에 1초마다 `PING`, 10초마다 `INFO`를 보냅니다. replica 목록은 master의 `INFO`에서 얻습니다.
+  > 다른 Sentinel은 master의 `__sentinel__:hello` 채널에 2초마다 올라오는 메시지로 서로 찾습니다.
+- **Token:** `request` · `PING`
+- **Facts:**
+  - At least 3 Sentinels on machines that fail independently
+  - Config: `sentinel monitor mymaster 10.0.0.1 6379 2` (last number = quorum)
+- **Event log:** `sen1 → main · Detect · PING · every 1 s`
+- **Sources:** [sentinel.md#L85-L86](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/sentinel.md#L85-L86), [sentinel.md#L123](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/sentinel.md#L123), [sentinel.c#L3142-L3185](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L3142-L3185), [sentinel.md#L996-L998](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/sentinel.md#L996-L998)
+
+#### S2 · `mutate` sen1 · 30초 응답 없음 → SDOWN
+- **Subtitle:** `down-after-milliseconds` 동안 유효한 답이 없으면, 이 Sentinel 혼자 "죽은 것 같다"고 본다.
+- **Prose:**
+  > `down-after-milliseconds`(기본 30초) 동안 유효한 `PING` 응답이 없으면 그 Sentinel은 master를 SDOWN(주관적 다운)으로 표시합니다.
+  > 아직 한 Sentinel의 의견일 뿐이고, failover는 시작되지 않습니다.
+- **Facts:**
+  - `down-after-milliseconds`: 30000
+  - Valid replies: `+PONG`, `-LOADING`, `-MASTERDOWN`
+  - Event: `+sdown`
+- **Event log:** `sen1 → sen1 · Detect · +sdown master mymaster 10.0.0.1 6379 · 30 s`
+- **State (sen1: view of mymaster):**
+  - before: `상태` = ok; `동의` = —; `epoch` = 6; `leader` = —; `승격 대상` = —
+  - after: `상태` = SDOWN; `동의` = 1/3; `epoch` = 6; `leader` = —; `승격 대상` = —
+- **Sources:** [sentinel.md#L940-L958](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/sentinel.md#L940-L958), [sentinel.c#L69](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L69), [sentinel.c#L4625-L4645](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L4625-L4645)
+
+#### S3 · `move` sen1 → sen2 · 다른 Sentinel에게 묻는다
+- **Subtitle:** `SENTINEL is-master-down-by-addr` — "너도 master가 죽었다고 보니?"
+- **Prose:**
+  > SDOWN을 본 Sentinel은 다른 Sentinel들에게 master 상태를 1초마다 묻습니다.
+- **Token:** `request` · `SENTINEL is-master-down-by-addr 10.0.0.1 6379 6 *`
+- **Facts:**
+  - Reply: down flag, leader runid (or `*`), leader epoch
+  - Docs: "no strong consensus algorithm is used, but just a form of gossip" for ODOWN
+- **Event log:** `sen1 → sen2 · Detect · is-master-down-by-addr → down=1 · —`
+- **Sources:** [sentinel.c#L3964-L4015](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L3964-L4015), [sentinel.md#L964-L967](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/sentinel.md#L964-L967)
+
+#### S4 · `mutate` sen1 · quorum이 동의 → ODOWN
+- **Subtitle:** quorum(여기서는 2)개 Sentinel이 동의하면 객관적 다운.
+- **Prose:**
+  > SDOWN에 동의한 Sentinel 수가 quorum 이상이면 ODOWN(객관적 다운)입니다. ODOWN은 master에만 씁니다.
+  > quorum은 "죽었다"는 판정에만 쓰입니다. failover 실행은 다음 단계의 과반 투표가 정합니다.
+- **Facts:**
+  - Docs: "the quorum is only used to detect the failure"
+  - Event: `+odown … #quorum 2/2`
+- **Event log:** `sen1 → sen1 · Detect · +odown master mymaster #quorum 2/2 · —`
+- **State (sen1: view of mymaster):**
+  - before: `상태` = SDOWN; `동의` = 1/3; `epoch` = 6; `leader` = —; `승격 대상` = —
+  - after: `상태` = ODOWN; `동의` = 2/3; `epoch` = 6; `leader` = —; `승격 대상` = —
+- **Sources:** [sentinel.c#L4654-L4686](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L4654-L4686), [sentinel.md#L132-L133](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/sentinel.md#L132-L133), [sentinel.md#L973-L975](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/sentinel.md#L973-L975)
+
+#### S5 · `move` sen1 → sen2 · "나를 leader로 뽑아 줘"
+- **Subtitle:** epoch를 올리고 자기 runid를 넣어 같은 명령으로 표를 요청한다.
+- **Prose:**
+  > failover는 Sentinel 하나만 실행합니다. sen1은 epoch를 7로 올리고 다른 Sentinel에게 자기에게 투표해 달라고 요청합니다.
+  > 각 Sentinel은 epoch마다 한 번만 투표합니다.
+- **Token:** `request` · `SENTINEL is-master-down-by-addr 10.0.0.1 6379 7 <sen1 runid>`
+- **Facts:**
+  - One vote per Sentinel per epoch
+  - Events: `+new-epoch`, `+try-failover`, `+vote-for-leader`
+- **Event log:** `sen1 → sen2 · Elect · vote request epoch 7 → +vote-for-leader sen1 · —`
+- **Sources:** [sentinel.c#L4991-L5001](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L4991-L5001), [sentinel.c#L3973-L3975](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L3973-L3975), [sentinel.c#L4792-L4818](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L4792-L4818)
+
+#### S6 · `mutate` sen1 · 과반을 얻어 leader가 된다
+- **Subtitle:** 전체 Sentinel의 과반(그리고 quorum 이상)의 표가 있어야 failover할 수 있다.
+- **Prose:**
+  > 표가 Sentinel 전체의 과반이면서 quorum 이상이면 sen1이 leader입니다. 소수 쪽 partition에서는 failover가 일어나지 않습니다.
+  > 실패하면 `failover-timeout`의 2배 뒤에 다시 시도합니다.
+- **Facts:**
+  - Docs: "Sentinel never performs a failover in the partition where a minority of Sentinels exist"
+  - `failover-timeout`: 180000 ms
+- **Event log:** `sen1 → sen1 · Elect · +elected-leader epoch 7 (2 of 3 votes) · —`
+- **State (sen1: view of mymaster):**
+  - before: `상태` = ODOWN; `동의` = 2/3; `epoch` = 6; `leader` = —; `승격 대상` = —
+  - after: `상태` = ODOWN; `동의` = 2/3; `epoch` = 7; `leader` = sen1; `승격 대상` = —
+- **Sources:** [sentinel.md#L1080-L1088](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/sentinel.md#L1080-L1088), [sentinel.c#L4872-L4905](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L4872-L4905), [sentinel.c#L77](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L77), [sentinel.md#L1106](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/sentinel.md#L1106)
+
+#### S7 · `mutate` sen1 · 승격할 replica를 고른다
+- **Subtitle:** 끊긴 지 오래된 replica는 빼고, priority → 복제 offset → runid 순으로 고른다.
+- **Prose:**
+  > 연결이 끊겼거나 오래 끊겨 있던 replica, `replica-priority 0`인 replica는 후보에서 뺍니다.
+  > 남은 후보를 priority가 낮은 순, 그다음 복제 offset이 큰(데이터가 최신인) 순으로 고릅니다.
+- **Facts:**
+  - `replica-priority`: 100 by default; 0 = never promoted
+  - Order: lower priority → higher replication offset → smaller runid
+- **Event log:** `sen1 → sen1 · Promote · +selected-slave slave 10.0.0.2:6379 · —`
+- **State (sen1: view of mymaster):**
+  - before: `상태` = ODOWN; `동의` = 2/3; `epoch` = 7; `leader` = sen1; `승격 대상` = —
+  - after: `상태` = ODOWN; `동의` = 2/3; `epoch` = 7; `leader` = sen1; `승격 대상` = replica 1 (10.0.0.2, offset 1052100, E.G.)
+- **Sources:** [sentinel.c#L5044-L5100](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L5044-L5100), [sentinel.c#L5115-L5136](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L5115-L5136), [sentinel.md#L1044-L1062](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/sentinel.md#L1044-L1062), [redis.conf#L812-L825](https://github.com/redis/redis/blob/8.10.3/redis.conf#L812-L825)
+
+#### S8 · `move` sen1 → peer1 · `REPLICAOF NO ONE`
+- **Subtitle:** 고른 replica를 master로 만든다.
+- **Prose:**
+  > leader는 고른 replica에 `REPLICAOF NO ONE`(과 `CONFIG REWRITE`)을 보냅니다. 그 replica의 `INFO`에서 master 역할이 보이면 승격이 확정됩니다.
+- **Token:** `request` · `REPLICAOF NO ONE`
+- **Facts:**
+  - Sent inside `MULTI`/`EXEC` with `CONFIG REWRITE` and `CLIENT KILL`
+  - Events: `+failover-state-send-slaveof-noone`, then `+promoted-slave`
+- **Event log:** `sen1 → peer1 · Promote · REPLICAOF NO ONE → +promoted-slave · —`
+- **Sources:** [sentinel.c#L4945-L4986](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L4945-L4986), [sentinel.md#L1116](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/sentinel.md#L1116)
+
+#### S9 · `move` sen1 → peer2 · 나머지 replica는 새 master를 따른다
+- **Subtitle:** `REPLICAOF 10.0.0.2 6379`. 한 번에 `parallel-syncs`개씩.
+- **Prose:**
+  > 나머지 replica는 새 master를 따르도록 바꿉니다. 동시에 몇 개를 바꿀지는 `parallel-syncs`(기본 1)가 정합니다. 동시에 많이 바꾸면 그만큼 replica가 동시에 sync합니다.
+- **Token:** `request` · `REPLICAOF 10.0.0.2 6379`
+- **Facts:**
+  - `parallel-syncs`: 1
+  - Events: `+slave-reconf-sent`, `+slave-reconf-done`, `+failover-end`
+- **Event log:** `sen1 → peer2 · Promote · REPLICAOF 10.0.0.2 6379 · —`
+- **Sources:** [sentinel.c#L5317-L5319](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L5317-L5319), [sentinel.c#L81](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L81)
+
+#### S10 · `mutate` client · client가 새 master로 옮긴다
+- **Subtitle:** `+switch-master` 이벤트, 또는 Sentinel에 다시 물어서 새 주소를 얻는다.
+- **Prose:**
+  > Sentinel은 `+switch-master <이름> <옛 ip> <옛 port> <새 ip> <새 port>`를 pub/sub로 알립니다.
+  > Sentinel-aware client는 `SENTINEL get-master-addr-by-name mymaster`로 주소를 받고, 연결한 뒤 `ROLE`로 master인지 확인합니다.
+- **Facts:**
+  - Docs: `+switch-master` is "the message most external users are interested in"
+  - Client steps: ask a Sentinel → connect → verify with `ROLE` → retry if not master
+- **Event log:** `sen1 → client · Clients · +switch-master mymaster 10.0.0.1 6379 10.0.0.2 6379 · —`
+- **State (client: master address):**
+  - before: `mymaster` = 10.0.0.1:6379
+  - after: `mymaster` = 10.0.0.2:6379
+- **Record:** D11.1 (`wire`)
+- **Sources:** [sentinel.md#L729-L734](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/sentinel.md#L729-L734), [sentinel.md#L768](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/sentinel.md#L768), [sentinel-clients.md#L49-L80](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/develop/reference/sentinel-clients.md#L49-L80), [sentinel.c#L5363-L5371](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L5363-L5371)
+
+#### S11 · `mutate` main · 옛 master가 돌아오면 replica가 된다 (side path)
+- **Subtitle:** 분할 중 옛 master가 받은 쓰기는 사라진다. `min-replicas-to-write`로 그 시간을 줄인다.
+- **Prose:**
+  > 옛 master가 돌아오면 Sentinel이 새 master의 replica로 바꿉니다. 분할 동안 옛 master에 쓴 client의 데이터는 full sync로 지워집니다.
+  > `min-replicas-to-write 1`이면 replica와 끊긴 master가 10초 뒤 쓰기를 거절해 손실을 줄입니다. 대신 가용성이 줄어듭니다.
+- **Facts:**
+  - Docs: "all the data written during the partition will be lost"
+  - `min-replicas-to-write 1` + `min-replicas-max-lag 10` limits the window
+- **Event log:** `sen1 → main · Promote · +convert-to-slave 10.0.0.1:6379 · —`
+- **State (main: old master):**
+  - before: `role` = master; `상태` = —
+  - after: `role` = replica of 10.0.0.2; `상태` = partition writes discarded
+- **Sources:** [sentinel.md#L1180-L1200](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/sentinel.md#L1180-L1200), [sentinel.c#L2711-L2725](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L2711-L2725), [sentinel.md#L1016](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/sentinel.md#L1016)
+
+### Replay
+
+S1 → S2 → S4 → S6 → S7 → S8 → S10: sen1 → main (no reply) → SDOWN → ODOWN → leader → choose → peer1 (promote) → client (switch).
+
+### Decoder records
+
+**D11.1 · step S10 · `wire` · `+switch-master` Pub/Sub message.**
+
+| Field | Example | Meaning |
+|---|---|---|
+| channel | `+switch-master` | event name = channel |
+| master name | `mymaster` | from `sentinel monitor` |
+| old ip, old port | `10.0.0.1 6379` (E.G.) | |
+| new ip, new port | `10.0.0.2 6379` (E.G.) | connect here |
+
+`SENTINEL get-master-addr-by-name mymaster` returns the same new address as a 2-element array `[ip, port]`. Sources: [sentinel.c#L5363-L5371](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L5363-L5371), [sentinel.c#L4021-L4035](https://github.com/redis/redis/blob/8.10.3/src/sentinel.c#L4021-L4035), [sentinel.md#L768](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/management/sentinel.md#L768).
+
+### Self-check
+
+1. **Q:** SDOWN과 ODOWN의 차이는? **A:** SDOWN은 한 Sentinel이 down-after(30초) 동안 답을 못 받은 것, ODOWN은 quorum 개 Sentinel이 동의한 것.
+2. **Q:** quorum이 2인데 Sentinel 3개 중 2개가 죽었다. failover가 되나? **A:** 안 된다. 살아 있는 1개는 과반 표를 얻을 수 없다.
+3. **Q:** 승격 replica 선택 기준은? **A:** 오래 끊긴 것과 priority 0 제외 후, priority 낮은 순 → offset 큰 순 → runid.
+4. **Q:** failover 뒤 잃을 수 있는 쓰기는? **A:** 복제되기 전 옛 master가 받은 쓰기, 분할 중 옛 master에 쓴 데이터.
+
+---
+
+## Lesson 12. `cluster`: 16384개 slot과 MOVED/ASK
+
+**Goal.** Route one key to its slot and node, follow a `MOVED` and an `ASK` redirect, then watch the cluster detect a dead master and promote its replica.
+
+**Critical path.** key → slot → owner node, or a MOVED/ASK redirect; dead master → PFAIL → FAIL → replica elected.
+
+**Interview and incident questions**
+- Redis Cluster는 키를 어떻게 나누나? hash tag는 왜 쓰나?
+- `MOVED`와 `ASK`의 차이와 client 동작은?
+- master 장애를 누가 판정하고, replica는 어떻게 승격되나?
+- 분할 중 받은 쓰기를 잃을 수 있나?
+
+**Overview (one line).** 8.4부터 `CLUSTER MIGRATION`으로 slot을 원자적으로 옮길 수 있다(이때는 ASK가 없다; cluster-migration docs).
+
+**Scenario.** Three masters with one replica each. The slot split below is an example of a `redis-cli --cluster create` 3-master split: A `0–5460`, B `5461–10922`, C `10923–16383` (E.G.). Only A's replica A1 is drawn.
+
+**Nodes:** `client` (cluster-aware client), `main` (node A), `peer1` (node B), `peer2` (node C), `peer3` (replica A1).
+
+**State panels**
+
+| Node | Panel | Initial rows |
+|---|---|---|
+| `client` | slot map (cached) | `0–5460` → B (stale, E.G.); `5461–10922` → B; `10923–16383` → C |
+| `main` | node A | `slot 1649` = owner, stable; `{user:1000}.following` = here; `cluster state` = ok |
+| `peer1` | node B's view of A | `A flags` = master; `reports` = — |
+| `peer3` | replica A1 | `role` = replica of A; `epoch` = 6; `votes` = — |
+
+**Layer selector:** `Routing` · `Resharding` · `Failure detection` · `Failover`.
+
+### Steps
+
+#### S1 · `mutate` client · key → slot
+- **Subtitle:** `CRC16("user:1000") mod 16384` = 1649. `{…}` 안만 hash하면 관련 키를 한 slot에 모을 수 있다.
+- **Prose:**
+  > 키 공간은 16384개 slot이고, slot = `CRC16(key) mod 16384`입니다. 각 slot은 master 하나가 맡습니다.
+  > 키에 `{…}`가 있으면 그 안만 hash합니다. `{user:1000}.following`도 slot 1649입니다. multi-key 명령과 transaction은 같은 slot 키끼리만 됩니다.
+- **Facts:**
+  - `user:1000` → slot 1649; `{user:1000}.following` → 1649 (computed with the spec's CRC16, checked against its test vector)
+  - Keys in different slots in one command: `-CROSSSLOT Keys in request don't hash to the same slot`
+- **Event log:** `client → client · Routing · slot(user:1000) = 1649 · —`
+- **State (client: slot map):**
+  - before: `0–5460` → B (stale); `5461–10922` → B; `10923–16383` → C
+  - after: `0–5460` → B (stale) ← slot 1649 looked up; `5461–10922` → B; `10923–16383` → C
+- **Sources:** [cluster-spec.md#L160-L174](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L160-L174), [cluster-spec.md#L194-L207](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L194-L207), [cluster.c#L1500](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1500)
+
+#### S2 · `move` client → peer1 · 오래된 map으로 B에 보냈다
+- **Subtitle:** `GET user:1000`이 slot 1649의 주인이 아닌 B에 간다.
+- **Prose:**
+  > client는 캐시한 slot map이 오래되어 B에 보냅니다. B는 실행 전 검사에서 slot 1649가 자기 것이 아님을 압니다.
+- **Token:** `request` · `GET user:1000`
+- **Facts:**
+  - The check runs in `processCommand`, before execution (lesson 1 S5)
+  - Nodes do not proxy requests; they redirect
+- **Event log:** `client → peer1 · RESP2 · GET user:1000 · 28 B`
+- **Sources:** [server.c#L4603-L4622](https://github.com/redis/redis/blob/8.10.3/src/server.c#L4603-L4622), [cluster-spec.md#L385-L390](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L385-L390)
+
+#### S3 · `move` peer1 → client · `-MOVED 1649 10.0.0.1:6379`
+- **Subtitle:** "이 slot은 저 node 것이다." 영구적인 이동이다.
+- **Prose:**
+  > B는 `-MOVED <slot> <ip>:<port>`로 답합니다. client는 그 node로 다시 보내고 slot map을 고쳐야 합니다.
+- **Token:** `response` · `-MOVED 1649 10.0.0.1:6379`
+- **Facts:**
+  - Format: `-MOVED <slot> <endpoint>:<port>`
+  - Client: update the mapping; refreshing the full map with `CLUSTER SHARDS` is recommended
+- **Event log:** `peer1 → client · RESP2 · -MOVED 1649 10.0.0.1:6379 (E.G.) · 27 B`
+- **Record:** D12.1 (`wire`)
+- **Sources:** [cluster.c#L1512-L1520](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1512-L1520), [cluster-spec.md#L397-L410](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L397-L410)
+
+#### S4 · `mutate` client · slot map을 갱신
+- **Subtitle:** `CLUSTER SHARDS`로 전체 map을 다시 받는다.
+- **Prose:**
+  > client는 `MOVED`를 받으면 slot map을 갱신합니다. 정상 상태에서는 redirect가 거의 없고, resharding이나 failover 뒤에만 잠깐 생깁니다.
+- **Facts:**
+  - `CLUSTER SHARDS` (since 7.0) replaces the deprecated `CLUSTER SLOTS`
+  - Many `MOVED` replies in metrics mean clients hold stale maps
+- **Event log:** `client → client · Routing · CLUSTER SHARDS → map updated · —`
+- **State (client: slot map):**
+  - before: `0–5460` → B (stale) ← slot 1649 looked up; `5461–10922` → B; `10923–16383` → C
+  - after: `0–5460` → A; `5461–10922` → B; `10923–16383` → C
+- **Sources:** [cluster-shards.md#L26](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/cluster-shards.md#L26), [cluster-slots.md#L19](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/cluster-slots.md#L19)
+
+#### S5 · `move` client → main · 올바른 node에서 처리
+- **Subtitle:** A가 `GET user:1000`을 실행한다.
+- **Prose:**
+  > 이제 client는 처음부터 A로 보냅니다. cluster client는 slot을 직접 계산하므로 한 번에 주인 node에 닿습니다.
+- **Token:** `request` · `GET user:1000`
+- **Facts:**
+  - Steady state: one hop, no proxy
+  - Each node serves only its own slots
+- **Event log:** `client → main · RESP2 · GET user:1000 → $5 alice · 28 B / 11 B`
+- **Sources:** [cluster.c#L1487](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1487), [cluster-spec.md#L385-L410](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L385-L410)
+
+#### S6 · `mutate` main · resharding: slot 1649를 B로 옮기는 중
+- **Subtitle:** A는 MIGRATING, B는 IMPORTING. 키를 하나씩 `MIGRATE`로 옮긴다.
+- **Prose:**
+  > slot을 옮길 때는 B를 IMPORTING, A를 MIGRATING으로 표시하고 키를 `MIGRATE`로 하나씩 옮깁니다. 끝나면 slot 주인을 B로 바꿉니다.
+  > 그동안 slot의 키는 A와 B에 나뉘어 있습니다. 큰 키의 `MIGRATE`는 두 node를 모두 막습니다(lesson 7).
+- **Facts:**
+  - Order: B `IMPORTING`, A `MIGRATING`, `MIGRATE` keys, `SETSLOT … NODE B`
+  - Docs: `MIGRATE` "blocks the two instances for the time required to transfer the key"
+- **Event log:** `main → peer1 · Resharding · MIGRATE {user:1000}.following · 1 key`
+- **State (main: node A):**
+  - before: `slot 1649` = owner, stable; `{user:1000}.following` = here; `cluster state` = ok
+  - after: `slot 1649` = owner, MIGRATING → B; `{user:1000}.following` = moved to B; `cluster state` = ok
+- **Sources:** [cluster-spec.md#L446-L505](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L446-L505), [migrate.md#L144-L145](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/commands/migrate.md#L144-L145), [cluster-spec.md#L520-L523](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L520-L523)
+
+#### S7 · `move` main → client · `-ASK 1649 10.0.0.2:6379`
+- **Subtitle:** 키가 이미 B로 갔다. "이번 한 번만 B에 물어봐라."
+- **Prose:**
+  > A는 slot의 주인이지만 요청한 키가 없고 slot이 MIGRATING이면 `-ASK`로 답합니다.
+  > ASK는 일시적입니다. client는 slot map을 바꾸지 않습니다.
+- **Token:** `response` · `-ASK 1649 10.0.0.2:6379`
+- **Facts:**
+  - ASK only while a slot is migrating and the keys are missing locally
+  - Some keys here, some moved: `-TRYAGAIN`
+- **Event log:** `main → client · RESP2 · -ASK 1649 10.0.0.2:6379 (E.G.) · 25 B`
+- **Record:** D12.2 (`wire`)
+- **Sources:** [cluster.c#L1357-L1363](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1357-L1363), [cluster.c#L1437-L1446](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1437-L1446), [cluster.c#L1505](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1505), [cluster-spec.md#L552-L555](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L552-L555)
+
+#### S8 · `move` client → peer1 · `ASKING` 다음 같은 명령
+- **Subtitle:** IMPORTING 중인 B는 `ASKING`을 먼저 받은 요청만 처리한다.
+- **Prose:**
+  > client는 B에 `ASKING`을 보낸 뒤 같은 명령을 보냅니다. `ASKING` 표시는 다음 명령 하나에만 유효합니다.
+  > `ASKING` 없이 보내면 B는 아직 slot 주인이 A이므로 `MOVED`로 돌려보냅니다.
+- **Token:** `request` · `ASKING` + `GET {user:1000}.following`
+- **Facts:**
+  - `ASKING` is a one-shot flag
+  - After `SETSLOT … NODE B`, A answers `MOVED` for this slot
+- **Event log:** `client → peer1 · RESP2 · ASKING, GET {user:1000}.following · 16 B + 41 B`
+- **Sources:** [cluster.c#L1738-L1745](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1738-L1745), [cluster.c#L1452-L1461](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1452-L1461), [cluster-spec.md#L552-L555](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L552-L555)
+
+#### S9 · `mutate` peer1 · A가 응답하지 않는다 → PFAIL
+- **Subtitle:** node끼리는 cluster bus(port + 10000)로 PING한다. `cluster-node-timeout` 동안 답이 없으면 PFAIL.
+- **Prose:**
+  > node들은 data port + 10000(예: 16379)인 cluster bus로 PING/PONG을 주고받습니다. 방화벽에서 이 port도 열어야 합니다.
+  > A가 15초 동안 답하지 않으면 B는 A를 PFAIL로 표시합니다. 아직 B 혼자의 판단입니다.
+- **Facts:**
+  - Bus port: data port + 10000 (`cluster-port` 0 = default)
+  - `cluster-node-timeout`: 15000 ms
+- **Event log:** `peer1 → peer1 · Failure detection · no PONG from A for 15000 ms → PFAIL · 15 s`
+- **State (peer1: node B's view of A):**
+  - before: `A flags` = master; `reports` = —
+  - after: `A flags` = master, PFAIL; `reports` = [B]
+- **Sources:** [cluster_legacy.h#L18](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.h#L18), [redis.conf#L1767-L1772](https://github.com/redis/redis/blob/8.10.3/redis.conf#L1767-L1772), [cluster-spec.md#L732](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L732)
+
+#### S10 · `mutate` peer1 · 과반 master가 동의 → FAIL
+- **Subtitle:** gossip으로 모인 PFAIL 보고가 master 과반이면 FAIL로 바꾸고 모두에게 알린다.
+- **Prose:**
+  > node들은 PING에 다른 node의 상태를 실어 보냅니다(gossip). B는 master 과반의 PFAIL 보고가 `node timeout × 2` 안에 모이면 A를 FAIL로 바꾸고 FAIL 메시지를 모두에게 보냅니다.
+- **Facts:**
+  - Quorum: majority of masters; window: node timeout × 2
+  - FAIL is broadcast to every node
+- **Event log:** `peer1 → peer3 · Failure detection · FAIL about A (2 of 3 masters) · —`
+- **State (peer1: node B's view of A):**
+  - before: `A flags` = master, PFAIL; `reports` = [B]
+  - after: `A flags` = master, FAIL; `reports` = [B, C]
+- **Sources:** [cluster-spec.md#L746](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L746), [cluster_legacy.c#L1935-L1961](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.c#L1935-L1961)
+
+#### S11 · `mutate` peer3 · replica A1이 선거에서 이겨 master가 된다
+- **Subtitle:** 잠깐 기다린 뒤 epoch를 올리고 표를 요청한다. master 과반의 표를 얻으면 A의 slot을 넘겨받는다.
+- **Prose:**
+  > A1은 `500 ms + 0~500 ms + rank × 1000 ms`를 기다립니다. offset이 가장 앞선 replica가 rank 0이라 먼저 나섭니다.
+  > epoch를 올리고 master들에게 표를 요청합니다. 과반을 얻으면 A의 slot을 자기 것으로 알립니다. 더 높은 epoch의 주장이 이깁니다.
+- **Facts:**
+  - Masters vote once per epoch; majority of masters required
+  - Higher `configEpoch` wins slot ownership ("last failover wins"); a returning A becomes A1's replica
+- **Event log:** `peer3 → peer3 · Failover · delay 742 ms (E.G.), epoch 7, votes 2/2 → master · —`
+- **State (peer3: replica A1):**
+  - before: `role` = replica of A; `epoch` = 6; `votes` = —
+  - after: `role` = master, slots 0–5460 (E.G.); `epoch` = 7; `votes` = 2 of 3 masters
+- **Sources:** [cluster-spec.md#L840-L849](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L840-L849), [cluster_legacy.c#L4483-L4498](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.c#L4483-L4498), [cluster_legacy.c#L4189](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.c#L4189), [cluster-spec.md#L859](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L859), [cluster-spec.md#L961-L975](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L961-L975)
+
+#### S12 · `mutate` main · 소수 쪽 master는 쓰기를 멈춘다 (side path)
+- **Subtitle:** 분할로 혼자 남은 A는 node timeout 뒤 쓰기를 거절한다. 그 전에 받은 쓰기는 잃을 수 있다.
+- **Prose:**
+  > 분할로 A가 소수 쪽에 남으면, 과반과 node timeout 동안 연락이 없을 때 cluster 상태를 fail로 바꾸고 요청을 거절합니다.
+  > 그 전까지 A가 받은 쓰기, 그리고 복제 전에 A가 죽어 사라진 쓰기는 잃습니다.
+- **Facts:**
+  - Spec: "There is always a window of time when it is possible to lose writes during partitions"
+  - Minority side: refuses writes after node timeout; reply `-CLUSTERDOWN The cluster is down`
+- **Event log:** `client → main · RESP2 · SET x 1 → -CLUSTERDOWN The cluster is down · —`
+- **State (main: node A):**
+  - before: `slot 1649` = owner, MIGRATING → B; `{user:1000}.following` = moved to B; `cluster state` = ok
+  - after: `slot 1649` = owner (stale); `{user:1000}.following` = moved to B; `cluster state` = fail (minority), writes refused
+- **Sources:** [cluster-spec.md#L76-L98](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L76-L98), [cluster_legacy.c#L5368-L5374](https://github.com/redis/redis/blob/8.10.3/src/cluster_legacy.c#L5368-L5374), [cluster.c#L1507-L1511](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1507-L1511)
+
+### Replay
+
+S1 → S2 → S3 → S4 → S5, then S9 → S10 → S11: slot → B (`MOVED`) → map → A; A silent → PFAIL → FAIL → A1 master.
+
+### Decoder records
+
+**D12.1 · step S3 · `wire` · `MOVED` redirect (27 B).**
+
+| Text | Field | Meaning |
+|---|---|---|
+| `-MOVED` | type and kind | error reply; the slot has a new owner |
+| `1649` | slot | |
+| `10.0.0.1:6379` | endpoint : port | owner (E.G.); update the slot map |
+
+**D12.2 · step S7 · `wire` · `ASK` redirect (25 B).**
+
+| Text | Field | Meaning |
+|---|---|---|
+| `-ASK` | type and kind | error reply; the slot is migrating |
+| `1649` | slot | |
+| `10.0.0.2:6379` | endpoint : port | target (E.G.); send `ASKING` and the command there once; keep the map |
+
+Sources: [cluster.c#L1512-L1520](https://github.com/redis/redis/blob/8.10.3/src/cluster.c#L1512-L1520), [cluster-spec.md#L385-L390](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L385-L390), [cluster-spec.md#L552-L555](https://github.com/redis/docs/blob/ff4f956f400e348ffd3a00b12ea163016e56f139/content/operate/oss_and_stack/reference/cluster-spec.md#L552-L555).
+
+### Self-check
+
+1. **Q:** `{user:1000}.following`과 `user:1000`이 같은 node에 있는 이유는? **A:** hash tag `{user:1000}` 안만 hash하므로 둘 다 slot 1649.
+2. **Q:** MOVED와 ASK의 차이는? **A:** MOVED는 slot 주인이 바뀐 것(map 갱신). ASK는 migration 중 일시적인 것(`ASKING` 후 그 한 명령만, map은 그대로).
+3. **Q:** master 장애 판정과 승격 순서는? **A:** node timeout(15 s) → PFAIL → master 과반 보고 → FAIL 방송 → replica가 대기 후 epoch 올려 투표 요청 → 과반 표 → master.
+4. **Q:** cluster에서 `+OK`를 받은 쓰기를 잃는 경우는? **A:** 복제 전에 master가 죽을 때, 분할된 소수 쪽 master가 node timeout 전까지 받은 쓰기.
+
+---
+
+## Cut by must-know rule
+
+Each item was tested with "Would the owner be blamed in an incident or design review for not knowing this?" The answer was no, so the item is cut or kept as one overview line.
+
+**Byte layouts and internal structures**
+- listpack entry encoding and backlen bytes, the intset header and its INT16 → INT32 upgrade bytes, and quicklist LZF compression and node fields.
+  - What engineers use instead is `OBJECT ENCODING`, `MEMORY USAGE`, and the thresholds (lesson 2).
+- `redisObject` bit fields (`type:4`, `encoding:4`, `refcount`, `lru:24`), `kvobj`, and the 44-byte `embstr` limit.
+- The RDB file format: magic, AUX fields, opcodes, type bytes, length encoding, and the CRC64 trailer.
+  - Lesson 8 keeps the `INFO persistence` fields instead.
+- The cluster bus header (`clusterMsg` offsets, `RCmb`, gossip entry layout) and message type numbers.
+  - Lesson 12 keeps the bus port and the MOVED/ASK frames.
+- `HELLO 3` map bytes, the RESP3 type table, and the diskless `$EOF:` framing.
+  - These remain as one fact or one line each.
+- The AOF manifest `startoffset`/`endoffset` fields.
+
+**Internal constants that do not change behavior**
+- `PROTO_IOBUF_LEN`, `PROTO_MBULK_BIG_ARG`, `NET_MAX_WRITES_PER_EVENT`, `IO_THREAD_MAX_PENDING_CLIENTS`, `max-new-connections-per-cycle`, `tcp-backlog`, and `lookahead`.
+- `ZSKIPLIST_MAXLEVEL`/`ZSKIPLIST_P`, `dict_force_resize_ratio` (kept only as the behavior "resize waits during fork"), `HASHTABLE_MIN_FILL`, and `empty_visits`.
+- `EVPOOL_SIZE`, the LRU clock width, `LFU_INIT_VAL`, and the LFU increment formula. Kept as behavior: sampled LRU, and an LFU counter that grows logarithmically and decays.
+- `active-expire-effort` scaling, fast-cycle gating, `maxmemory-eviction-tenacity`, and `LAZYFREE_THRESHOLD` (kept as "small values are freed on the spot").
+- Sentinel internals: hello message field order, failover state constants, TILT mode, and the INFO period during failover.
+- Cluster internals: the election auth timeout, the gossip entry count, and the manual-failover timeout.
+
+**Version history**
+- When ziplist became listpack, when MP-AOF arrived, and when effects replication became the default.
+- Old RDB version numbers, the rename of `acceptTcpHandler`, and the 8.0 I/O-thread internals (client pinning, per-thread event loops). Lesson 1 keeps one overview line on the 8.0 change.
+
+**Niche or brand-new features (one overview line at most)**
+- 8.10 compact hashes (`template-listpack`, `HIMPORT`) and the 8.10 `BACKUP` family.
+- 8.6 LRM eviction policies and 8.6 `HOTKEYS`.
+- 8.4 `DELEX` and `SET IFEQ/IFNE/IFDEQ/IFDNE`, and 8.4 atomic slot migration (`CLUSTER MIGRATION`).
+- 8.x rdb-channel replication. One overview line in lesson 10, because it changes where full-sync buffering happens at the pinned version.
+- `INCREX` (8.8), `FCALL_RO` flags, `WAITAOF`, hash field expiration (`HEXPIRE`, `listpackex`), and `aof-timestamp-enabled`.
+- Redlock details beyond one fact.
+
+**Removed from the first plan per review**
+- The reason for 16384 slots (only the 2048-byte slot bitmap was verified).
+- TTL jitter as a stampede fix (no official source).
+- All "version X changed Y" claims without a doc that states the version.
+- Rejoin-delay constants of a minority master.
 
 ## Open questions
 
-1. **Docs pinning.** `redis/docs` has no per-release tags. This plan pins it to commit `ff4f956` (2026-11-03). Decision 0004 asks for release-tag URLs. Should a commit pin count as "pinned" for redis.io docs, or should every docs-only fact also get a source-code anchor at `8.10.3`? Most steps already have both.
-2. **`io-threads` in the scene.** The default is `1`. Lesson 1 shows `io-threads 4` so that the hand-off is visible. Is that acceptable if S3 and S12 say plainly that the default is 1 and what changes?
-3. **Lock caveats placement.** Lock safety sits at the end of `replication` (S13–S15) and the stampede lock at the end of `expire-evict` (S14–S16). A separate `cache-patterns` lesson would break "one mechanism per lesson". Keep them as closing steps?
-4. **8.x-only features.** The plan teaches the rdb-channel full sync (S4–S6 of lesson 6), atomic slot migration (lesson 7 S8), `DELEX`/`IFEQ` (lesson 3 S16), LRM eviction, and 8.10 compact hashes as current behavior. Interviewers may expect the 7.x picture. Should each such step carry a "7.x에서는" line?
-5. **Decoder for a live dump.** D2.1, D2.2, D4.1, and D4.2 were computed from the code, not dumped from a running server. Before they ship, someone should run `redis-server 8.10.3` locally and confirm the bytes with `DEBUG LISTPACK`, `OBJECT ENCODING`, and a hex dump of a one-key `dump.rdb`.
-6. **Scene for lesson 4 pages.** A page-table view (S4–S5) is a new state shape. It may need a primitive the redesigned engine does not have yet.
-7. **Event-log protocol column.** The plan uses the layer names as the protocol column (`RESP2`, `RESP3`, `Bus`, `Stream`, `File`). Confirm against the redesigned log schema.
+1. **Docs pinning.** `redis/docs` is pinned to a commit, not a release tag. This differs from decision 0004. The engine session will record a decision.
+2. **Lessons without a decoder.** `encodings` has no decoder record after the byte layouts were cut. Is a lesson without a decoder acceptable, or should it show `MEMORY USAGE` / `OBJECT ENCODING` replies as a record?
+3. **State panels added to slots.** Some lessons need a panel on a slot that is otherwise a pure actor: `client` in `sentinel` and `cluster`, and `main` in `expire`. Confirm the redesigned schema allows panels on any slot.
+4. **Side-path steps.** Steps marked "(side path)" are failure branches: WATCH abort, `-MISCONF`, slow-disk AOF, failover lock loss, old master rejoin, cluster minority. The design asks for them to be drawn weaker. Confirm how the schema marks them.
+5. **Replay format.** Each lesson lists its replay as step ids. Confirm whether the engine wants step ids or a separate hop list.
+
+## Docs that disagree with the code (use the code)
+
+- **Active expire numbers:** `latency.md` still describes "repeat if more than 25% expired". In code, 10% is the repeat threshold and 25% is the CPU-time cap. `redis.conf` also calls the 25% "memory".
+- **LFU increment:** `redis.conf` gives `1/(old_value*lfu_log_factor+1)`; the code subtracts the initial value 5 first. This only matters if the formula is ever shown; it was cut.
+- **`HELLO` reply:** `protocol-spec.md` says `proto` is "the highest supported version"; the code returns the connection's current version.
+- **Diskless sync:** `replication.md` says diskless sync "can be enabled"; it is the default at 8.10.3. The page also does not describe the rdb channel.
+- **`NOSCRIPT` error text:** the docs show `NOSCRIPT No matching script`; the code sends `NOSCRIPT No matching script. Please use EVAL.`
+- **Sentinel docs:**
+  - The docs list some events without the `+` prefix and omit `+promoted-slave`; the code names them with `+`.
+  - The docs call the setting `is-master-down-after-milliseconds`; the real name is `down-after-milliseconds`.
+- **Latency event name:** `latency-monitor.md` lists `eviction-del`; the code records `evict-del`.
+- **Slowlog argument limit:** `slowlog-get.md` calls it `slowlog-max-argc`; the config is `slowlog-entry-max-argc`.
 
 ## Facts not verified
 
-These must not go into lesson data until checked. Each is either absent from the pinned sources or was not traced in code.
-
-- **Why 16384 slots.** The usual answer (a 2 KB slot bitmap in every heartbeat versus 8 KB for 65536, and clusters of about 1000 nodes) is not in `cluster-spec.md` or the code. The source is a GitHub issue comment (redis/redis#2576) that was not opened. Only the 2048-byte bitmap is verified (from `clusterMsg` offsets). Lesson 7 does not state the reason.
-- **TTL jitter as a stampede fix.** No official Redis page found that recommends randomizing TTLs. The cache-aside page names only "mutex locks or probabilistic early refresh". The probabilistic early-expiration formula (XFetch) is not on any page read. Lesson 3 uses only the lock.
-- **Runtime encoding of 41–44-byte strings.** 8.x embeds a value in the key object only if robj + key + value fit in a 64-byte cache line (`object.c#L283-L295`), so `OBJECT ENCODING` may report `raw` where older material says `embstr`. Not tested on a live server. Lesson 2 S1 states only the 44-byte `embstr` limit from `createStringObject`.
-- **Integer AUX values in RDB.** `redis-bits` = 64 is probably written int-encoded (`C0 40`), inferred from `rdbSaveRawString`. Not observed in a real file. D4.1 stops before that value.
-- **Versions in which things changed:** the rdb-channel replication (8.0 release notes say only "improved replication mechanism"), the shared replication buffer (believed 7.0), `repl-diskless-sync` defaulting to `yes`, the `startoffset`/`endoffset` manifest fields, `KEY_META`/`HASH_TEMPLATE` RDB opcodes, `lookahead`, expire metadata inside `kvobj`, cluster ping extensions (believed 7.0), and the rename of `acceptTcpHandler`. The pinned clone is shallow, so git history was not available. The lessons describe 8.10.3 behavior without naming the version a change arrived in, except where a doc or release note names it (MP-AOF 7.0, `HEXPIRE` 7.4, LRM 8.6, `DELEX`/`IFEQ`/`CLUSTER MIGRATION` 8.4, `BACKUP`/compact hashes 8.10, I/O-threading rewrite 8.0).
-- **RDB version numbers of older releases** (for example 7.2 = 11). Only `RDB_VERSION 15` at 8.10.3 is verified.
-- **Exact rejoin-delay behavior** of a minority master after a partition heals (`CLUSTER_MIN_REJOIN_DELAY` 500, `CLUSTER_MAX_REJOIN_DELAY` 5000, `CLUSTER_WRITABLE_DELAY` 2000 exist at `cluster_legacy.c#L5269-L5271` but were not traced).
-- **Default slot ranges** `0–5460 / 5461–10922 / 10923–16383` for a three-master cluster. Used only as an E.G. layout in lesson 7; not checked in `redis-cli`.
-- **`modules` in the `HELLO` reply.** Whether the official binary distributions load modules by default (making the array non-empty) was not checked; D1.3 marks it E.G.
-- **Docs that disagree with the code (use the code):**
-  - `protocol-spec.md` says `HELLO`'s `proto` is "the highest supported version"; the code returns the connection's current `c->resp`.
-  - `redis.conf` says active expiry avoids "consuming more than 25% of total memory"; the code's 25% is CPU time.
-  - `redis.conf` gives the LFU increment as `1/(old_value*lfu_log_factor+1)`; the code subtracts `LFU_INIT_VAL` (5) first.
-  - `replication.md` says diskless sync "can be enabled"; it is on by default, and the page does not describe the rdb channel.
-  - `hashes.md` and `redis.conf` call compact-hash conversion one-way; setting a field TTL converts a template hash to `listpackex` or `hashtable` (`t_hash.c#L2283-L2287`).
-  - `latency.md` does not mention I/O threads.
-  - `memory-optimization.md` still mentions `hash-max-zipmap-*` in one section, and the `OBJECT ENCODING` page does not list `listpackex`, `template-listpack`, or `template-array`.
-- **INCREX.** `src/commands/increx.json` (since 8.8.0) exists at 8.10.3 and may be useful for rate limiting, but it was not researched and is not used in any lesson.
+- **Computed values were not tested on a live server.** No step depends on runtime-only output, but these should be checked once on a running 8.10.3:
+  - the CRC16 slots (computed with the spec's algorithm and checked against its test vector and the `CLUSTER KEYSLOT` doc examples);
+  - the RESP byte counts;
+  - the 145-byte `HELLO` reply size, which was cut.
+- **Default slot ranges `0–5460 / 5461–10922 / 10923–16383`.** These are labeled as an example `redis-cli --cluster create` split and were not checked in `redis-cli`.
+- **The `modules` array in `HELLO`.** Whether official binary builds load modules by default was not checked. HELLO was cut to one fact.
+- **Frozen time inside scripts.** It is stated only in code comments (`server.c#L262-L276`), not in the docs. Lesson 3 S3 cites the code.
+- **Function replication.** It rests on the docs sentence; the propagation of `FUNCTION LOAD` was not traced in code.
