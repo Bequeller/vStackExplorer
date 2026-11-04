@@ -32,6 +32,8 @@ function nodeChanged(nodeId: string, a: NodeStates, b: NodeStates): boolean {
 
 /** Gap between a node and its state inset, and the inset's padding. */
 const INSET_PAD = 12;
+/** Below this scene width (CSS px) an inset is too small to read; the step details show the view. */
+const INSET_MIN_PX = 560;
 
 /**
  * The illustrated network: isometric nodes on the topic's map. Critical-path nodes appear on the
@@ -68,6 +70,13 @@ export class NetworkView {
   private readonly insetLayer: SVGGElement;
   /** The state inset shown during the current mutate step (at most one at a time). */
   private inset: { group: SVGGElement; body: SVGGElement; box: Box; context: StepContext } | null = null;
+  /** The current step's structural change, shown as the inset when the scene is wide enough. */
+  private insetContext: StepContext | null = null;
+  /** A label pinned to the scene's top-left corner: the regions the step runs in. */
+  private readonly tag: SVGGElement;
+  private where = '';
+  /** The scene's width in CSS px, measured on each step and resize (0 before layout). */
+  private px = 0;
   /** How high each node stands: the top of its innermost region slab. */
   private readonly lifts: Map<string, number>;
 
@@ -93,6 +102,10 @@ export class NetworkView {
     const nodeLayer = svg('g', { class: 'nodes' }, this.element);
     const tokenLayer = svg('g', { class: 'token-layer' }, this.element);
     this.insetLayer = svg('g', { class: 'inset-layer' }, this.element);
+    this.tag = svg('g', { class: 'region-tag' }, this.element);
+    svg('rect', { class: 'region-tag-pill', x: 0, y: 0, height: 24, rx: 6 }, this.tag);
+    svg('rect', { class: 'region-tag-swatch', x: 9, y: 8, width: 8, height: 8, rx: 2 }, this.tag);
+    text('', { class: 'region-tag-text', x: 24, y: 12, 'dominant-baseline': 'central' }, this.tag);
 
     this.lane = laneKeys(lesson.steps);
     lesson.steps.forEach((step, i) => {
@@ -199,12 +212,17 @@ export class NetworkView {
     this.tokens.show(step.kind === 'move' ? this.flights(step) : []);
 
     // A structural view (log, queue, tree) shows as an inset while its node mutates, then
-    // collapses back to the badge at the next step.
+    // collapses back to the badge at the next step. A narrow scene shows it in the step details only.
+    this.px = this.element.getBoundingClientRect().width;
     this.inset?.group.remove();
-    this.inset = context.state && isStructural(context.state.after) ? this.openInset(context) : null;
+    this.inset = null;
+    this.insetContext = context.state && isStructural(context.state.after) ? context : null;
+    this.syncInset();
 
-    const framing = context.replay ? this.frameFor([...this.criticalNodes]) : this.frameFor(involved);
-    this.camera.aim(this.inset && !context.replay ? this.camera.frame([framing, this.inset.box]) : framing);
+    // When zoomed in, the slab edges and labels are off screen, so the corner tag names the place.
+    this.setWhere(context.replay ? '' : this.regions.where(involved));
+
+    this.camera.aim(this.target());
   }
 
   update(step: Step, t: number): void {
@@ -224,21 +242,60 @@ export class NetworkView {
     this.tokens.update(t);
     if (this.inset) this.drawInset(this.inset, t);
     this.camera.update(t);
+    this.placeTag();
   }
 
   /** Re-aims the camera at the current step at once, e.g. after the element was resized. */
   refit(): void {
     if (!this.step) return;
-    this.camera.jump(this.frameFor(this.replay ? [...this.criticalNodes] : this.involved(this.step)));
+    this.px = this.element.getBoundingClientRect().width;
+    this.syncInset();
+    this.camera.jump(this.target());
+    this.placeTag();
+  }
+
+  /** The framing for the current step: its nodes and its inset, or the critical path in the replay. */
+  private target(): Box {
+    if (!this.step) return this.camera.box;
+    if (this.replay) return this.frameFor([...this.criticalNodes]);
+    const framing = this.frameFor(this.involved(this.step));
+    return this.inset ? this.camera.frame([framing, this.inset.box]) : framing;
+  }
+
+  /** Opens or closes the inset for the current scene width. */
+  private syncInset(): void {
+    const roomy = this.px === 0 || this.px >= INSET_MIN_PX;
+    const want = roomy ? this.insetContext : null;
+    if (want === (this.inset?.context ?? null)) return;
+    this.inset?.group.remove();
+    this.inset = want ? this.openInset(want) : null;
+  }
+
+  private setWhere(where: string): void {
+    this.where = where;
+    this.tag.classList.toggle('is-shown', where !== '');
+    const label = this.tag.querySelector('.region-tag-text');
+    if (label) label.textContent = where;
+    this.tag.querySelector('.region-tag-pill')?.setAttribute('width', (textWidth(where, 12) + 34).toFixed(1));
+  }
+
+  /** Keeps the corner tag at a fixed screen size and place, whatever the camera's zoom. */
+  private placeTag(): void {
+    if (!this.where) return;
+    const box = this.camera.box;
+    const k = this.px > 0 ? box.w / this.px : 1;
+    this.tag.setAttribute('transform', `translate(${(box.x + 10 * k).toFixed(1)} ${(box.y + 10 * k).toFixed(1)}) scale(${k.toFixed(4)})`);
   }
 
   private openInset(context: StepContext): { group: SVGGElement; body: SVGGElement; box: Box; context: StepContext } | null {
     const node = context.state && this.nodes.get(context.state.node);
     if (!node || !context.state) return null;
     const group = svg('g', { class: 'state-inset' }, this.insetLayer);
-    const x = node.x + 70;
-    const y = node.y - this.lift(node.id) - ICON_TOP - 70;
-    svg('line', { class: 'state-inset-tie', x1: node.x + 20, y1: node.y - this.lift(node.id) - 50, x2: x, y2: y + 30 }, group);
+    // The card sits right of the "상태" badge (x + 34 … x + 92), tied to the badge's end.
+    const badgeY = node.y - this.lift(node.id) - ICON_TOP + 6;
+    const x = node.x + 106;
+    const y = badgeY - 76;
+    svg('line', { class: 'state-inset-tie', x1: node.x + 92, y1: badgeY, x2: x, y2: y + 30 }, group);
     svg('rect', { class: 'state-inset-card', x, y, rx: 10 }, group);
     text(context.state.title, { class: 'state-inset-title', x: x + INSET_PAD, y: y + 20 }, group);
     const body = svg('g', { transform: `translate(${x + INSET_PAD} ${y + 30})` }, group);

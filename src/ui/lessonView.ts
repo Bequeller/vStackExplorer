@@ -186,7 +186,14 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
   stepBtn.addEventListener('click', () => view.player.next());
   playBtn.addEventListener('click', () => view.player.toggle());
   replayBtn.addEventListener('click', () => (view.player.state.replaying ? view.player.pause() : view.player.replay()));
-  for (const b of speedButtons) b.addEventListener('click', () => view.player.setSpeed(Number(b.dataset.speed)));
+  // Tapping the active speed cycles to the next one: the phone player shows only that button.
+  for (const b of speedButtons) {
+    b.addEventListener('click', () => {
+      const speed = speeds.find((s) => s === Number(b.dataset.speed)) ?? 1;
+      const next = speeds[(speeds.indexOf(speed) + 1) % speeds.length] ?? speed;
+      view.player.setSpeed(speed === view.player.state.speed ? next : speed);
+    });
+  }
   segbar.addEventListener('click', (e) => {
     const b = (e.target as Element).closest<HTMLElement>('[data-index]');
     if (b) view.player.seek(Number(b.dataset.index));

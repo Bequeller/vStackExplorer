@@ -479,6 +479,15 @@ h3 {
   inset: 0;
 }
 
+/* Nodes just outside the camera's frame fade into the edge instead of being cut off hard. */
+.scene-host::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 22px 10px var(--bg-2);
+}
+
 .scene-network {
   display: block;
   width: 100%;
@@ -1569,8 +1578,9 @@ h3 {
     padding: 10px var(--gutter) 0;
   }
 
+  /* About half the screen, so the step details start above the fold. */
   .scene-panel {
-    height: min(58vh, 460px);
+    height: min(52svh, 440px);
   }
 
   .scene-toolbar {
@@ -1618,12 +1628,15 @@ h3 {
     padding: 8px var(--gutter) calc(8px + env(safe-area-inset-bottom));
   }
 
+  /* One row, like the reference: the active speed (tap to cycle), the step controls, replay.
+     The step count is already in the top bar. */
   .speed-btn {
-    padding: 6px 7px;
+    padding: 8px 9px;
   }
 
-  .player {
-    flex-wrap: wrap;
+  .speed-btn[aria-pressed='false'],
+  .player-count {
+    display: none;
   }
 
   .replay-btn .btn-text {
@@ -1872,10 +1885,37 @@ h3 {
 
 .region-side--left { fill: color-mix(in srgb, var(--region) 45%, var(--bg-2)); }
 .region-side--right { fill: color-mix(in srgb, var(--region) 32%, var(--bg-2)); }
-.region--d1 .region-top { fill: color-mix(in srgb, var(--region) 22%, var(--bg-2)); }
-.region--d2 .region-top { fill: color-mix(in srgb, var(--region) 32%, var(--bg-2)); }
-.region--d3 .region-top { fill: color-mix(in srgb, var(--region) 42%, var(--bg-2)); }
-.region--d4 .region-top { fill: color-mix(in srgb, var(--region) 52%, var(--bg-2)); }
+/* Tops are translucent so the floor grid shows through: up close, a slab reads as a raised plate,
+   not as a second background. */
+.region-top { fill-opacity: 0.55; }
+.region--d1 .region-top { fill: color-mix(in srgb, var(--region) 20%, var(--bg-2)); }
+.region--d2 .region-top { fill: color-mix(in srgb, var(--region) 30%, var(--bg-2)); }
+.region--d3 .region-top { fill: color-mix(in srgb, var(--region) 40%, var(--bg-2)); }
+.region--d4 .region-top { fill: color-mix(in srgb, var(--region) 50%, var(--bg-2)); }
+
+/* The corner tag: the regions the current step runs in, at a fixed screen size. */
+.region-tag {
+  display: none;
+  pointer-events: none;
+}
+
+.region-tag.is-shown {
+  display: inline;
+}
+
+.region-tag-pill {
+  fill: color-mix(in srgb, var(--surface) 88%, transparent);
+  stroke: color-mix(in srgb, var(--region) 60%, var(--bg-2));
+}
+
+.region-tag-swatch {
+  fill: color-mix(in srgb, var(--region) 70%, var(--bg-2));
+}
+
+.region-tag-text {
+  font: 600 12px var(--font-mono);
+  fill: color-mix(in srgb, var(--region) 45%, var(--text));
+}
 
 .region--managed .region-top,
 .region--managed .region-side {

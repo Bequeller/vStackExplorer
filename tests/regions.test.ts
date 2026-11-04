@@ -3,7 +3,7 @@ import { validateTopic } from '../src/engine';
 import type { Region, TopicMeta } from '../src/lessons/types';
 import { meta as spring } from '../src/lessons/spring-boot/meta';
 import { iso } from '../src/scene/iso';
-import { SLAB, nodeLifts, regionFootprints, toGround } from '../src/scene/regions';
+import { SLAB, nodeLifts, regionFootprints, regionWhere, toGround } from '../src/scene/regions';
 
 /** A small map on the iso ground grid: two nodes inside a region, one outside. */
 function mapWith(regions: Region[]): TopicMeta {
@@ -59,5 +59,15 @@ describe('regions', () => {
     ['a non-member under a slab', [{ id: 'r', label: 'R', nodes: ['a', 'c'] }], 'is not in it'],
   ] as [string, Region[], string][])('rejects %s', (_case, regions, message) => {
     expect(has(mapWith(regions), message)).toBe(true);
+  });
+
+  it('names where a step runs: the nested region path, distinct places joined', () => {
+    const regions: Region[] = [
+      { id: 'host', label: 'Host', nodes: ['c'] },
+      { id: 'jvm', label: 'JVM', nodes: ['a', 'b'], parent: 'host' },
+    ];
+    expect(regionWhere({ regions }, ['d', 'a', 'b'])).toBe('Host › JVM');
+    expect(regionWhere({ regions }, ['a', 'c'])).toBe('Host › JVM ↔ Host');
+    expect(regionWhere({ regions }, ['d'])).toBe('');
   });
 });

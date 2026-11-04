@@ -104,6 +104,25 @@ export function nodeLifts(layout: Pick<TopicLayout, 'nodes' | 'regions'>): Map<s
   return lifts;
 }
 
+/**
+ * Where these nodes run, as "outer › inner" region labels; distinct places are joined by " ↔ ".
+ * Empty when none of them is in a region.
+ */
+export function regionWhere(layout: Pick<TopicLayout, 'regions'>, nodeIds: string[]): string {
+  const regions = layout.regions ?? [];
+  const byId = new Map(regions.map((r) => [r.id, r]));
+  const pathOf = (nodeId: string): string => {
+    const labels: string[] = [];
+    let r = regions.find((region) => region.nodes.includes(nodeId));
+    while (r && labels.length <= regions.length) {
+      labels.unshift(r.label);
+      r = r.parent ? byId.get(r.parent) : undefined;
+    }
+    return labels.join(' › ');
+  };
+  return [...new Set(nodeIds.map(pathOf).filter(Boolean))].join(' ↔ ');
+}
+
 export function overlaps(a: Footprint, b: Footprint): boolean {
   return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
 }
@@ -121,8 +140,10 @@ export class RegionLayer {
   private readonly slabs = new Map<string, SVGGElement>();
   /** Region id → every node id inside it, including child regions' nodes. */
   private readonly members = new Map<string, Set<string>>();
+  private readonly layout: Pick<TopicLayout, 'nodes' | 'regions'>;
 
   constructor(layer: SVGGElement, layout: Pick<TopicLayout, 'nodes' | 'regions'>) {
+    this.layout = layout;
     const footprints = [...regionFootprints(layout).values()];
     const regions = layout.regions ?? [];
     const collect = (id: string, into: Set<string>, seen = new Set<string>()): Set<string> => {
@@ -138,6 +159,10 @@ export class RegionLayer {
       this.members.set(f.id, collect(f.id, new Set()));
       this.slabs.set(f.id, drawSlab(layer, f));
     }
+  }
+
+  where(nodeIds: string[]): string {
+    return regionWhere(this.layout, nodeIds);
   }
 
   /** Shows the slabs that hold at least one of `nodeIds`. */

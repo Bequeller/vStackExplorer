@@ -9,6 +9,8 @@ export interface Box {
 
 /** The smallest area the camera shows, in scene units, so a single node is not blown up. */
 export const MIN_FRAME = { w: 760, h: 470 };
+/** In a portrait scene (a phone), height is plentiful, so a narrower minimum keeps icons readable. */
+const MIN_FRAME_PORTRAIT_W = 540;
 
 export class Camera {
   private current: Box;
@@ -30,11 +32,16 @@ export class Camera {
     const y1 = Math.max(...areas.map((a) => a.y + a.h));
     const rect = this.element.getBoundingClientRect();
     const aspect = rect.width > 0 && rect.height > 0 ? rect.width / rect.height : 1.6;
-    let w = Math.max(x1 - x0 + 80, MIN_FRAME.w);
+    let w = Math.max(x1 - x0 + 80, aspect < 1 ? MIN_FRAME_PORTRAIT_W : MIN_FRAME.w);
     let h = Math.max(y1 - y0 + 60, MIN_FRAME.h);
     if (w / h > aspect) h = w / aspect;
     else w = h * aspect;
     return { x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - h / 2, w, h };
+  }
+
+  /** The framing on screen now. */
+  get box(): Box {
+    return this.current;
   }
 
   /** Starts easing from the current framing toward `target`; `update(t)` draws progress. */
