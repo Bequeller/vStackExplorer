@@ -15,5 +15,5 @@ export function placeLesson(lesson: Lesson, meta: Pick<TopicMeta, 'layout'>): Pl
       return base && { ...base, ...ref, x: base.x, y: base.y };
     })
     .filter((n): n is TopicNode => n !== undefined);
-  return { ...lesson, nodes, world: { width: meta.layout.width, height: meta.layout.height } };
+  return { ...lesson, nodes, world: { width: meta.layout.width, height: meta.layout.height }, layout: meta.layout };
 }

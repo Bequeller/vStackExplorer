@@ -1,21 +1,15 @@
 import type { StateView, Step, TopicNode } from '../lessons/types';
+import { Camera, lerp, type Box } from './camera';
 import type { NodeStates, PlacedLesson, StepContext } from './driver';
 import { ICON_TOP, drawIcon } from './icons';
 import { COS30 } from './iso';
+import { RegionLayer, nodeLifts } from './regions';
 import { setAttrs, svg, text } from './svg';
-
-interface Box {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
 
 /** Height on the illustration where links attach, above the base center. */
 const ANCHOR_Z = 42;
 /** How far from a node's anchor a token starts and stops, so it never sits on the drawing. */
 const CLEAR = 52;
-const MIN_FRAME = { w: 760, h: 470 };
 const TOKEN_R = 8;
 
 let sceneCount = 0;
@@ -61,9 +55,10 @@ export class NetworkView {
 
   private index = 0;
   private step: Step | undefined;
-  private camera: Box;
-  private cameraFrom: Box;
-  private cameraTo: Box;
+  private readonly camera: Camera;
+  private readonly regions: RegionLayer;
+  /** How high each node stands: the top of its innermost region slab. */
+  private readonly lifts: Map<string, number>;
 
   constructor(host: Element, private readonly lesson: PlacedLesson) {
     const id = `vse-${++sceneCount}`;
@@ -82,6 +77,7 @@ export class NetworkView {
     const { width, height } = lesson.world;
     svg('rect', { class: 'grid', x: -1000, y: -1000, width: width + 2000, height: height + 2000, fill: `url(#${id}-grid)` }, this.element);
 
+    const regionLayer = svg('g', { class: 'regions' }, this.element);
     const linkLayer = svg('g', { class: 'links' }, this.element);
     const nodeLayer = svg('g', { class: 'nodes' }, this.element);
     const tokenLayer = svg('g', { class: 'token-layer' }, this.element);
@@ -103,6 +99,9 @@ export class NetworkView {
       }
     });
 
+    this.lifts = nodeLifts(lesson.layout);
+    this.regions = new RegionLayer(regionLayer, lesson.layout);
+
     const initial: Record<string, StateView> = {};
     for (const s of lesson.states) initial[s.node] = s.view;
     this.initial = initial;
@@ -114,8 +113,8 @@ export class NetworkView {
     for (const [key] of this.linkFirstUse) {
       const [a, b] = key.split('|').map((k) => this.nodes.get(k));
       if (!a || !b) continue;
-      const [ax, ay] = anchor(a);
-      const [bx, by] = anchor(b);
+      const [ax, ay] = this.anchor(a);
+      const [bx, by] = this.anchor(b);
       const cls = this.criticalLinks.has(key) ? 'link link--critical' : 'link link--side';
       this.links.set(key, svg('line', { class: cls, x1: ax, y1: ay, x2: bx, y2: by, opacity: 0 }, linkLayer));
     }
@@ -125,10 +124,9 @@ export class NetworkView {
     this.tokenPill = svg('rect', { class: 'token-pill', rx: 6, height: 26 }, this.token);
     this.tokenText = text('', { class: 'token-label', 'dominant-baseline': 'central' }, this.token);
 
-    this.camera = this.frameFor([lesson.steps[0] ? this.involved(lesson.steps[0])[0] ?? '' : '']);
-    this.cameraFrom = this.camera;
-    this.cameraTo = this.camera;
-    this.applyCamera(this.camera);
+    this.camera = new Camera(this.element, lesson.world);
+    const first = lesson.steps[0];
+    this.camera.jump(this.frameFor(first ? this.involved(first).slice(0, 1) : []));
   }
 
   begin(step: Step, index: number, after: NodeStates, context: StepContext): void {
@@ -137,6 +135,7 @@ export class NetworkView {
     this.replay = context.replay;
     const involved = this.involved(step);
     this.entering = new Set();
+    const visible: string[] = [];
 
     for (const [nodeId, group] of this.groups) {
       const first = this.firstUse.get(nodeId) ?? Infinity;
@@ -157,12 +156,13 @@ export class NetworkView {
         entering = isUsedNow;
       }
       if (entering) this.entering.add(nodeId);
+      if (shown || entering) visible.push(nodeId);
       group.classList.toggle('is-hidden', !shown && !entering);
       group.classList.toggle('is-side', !isCritical);
       group.classList.toggle('is-active', isUsedNow);
       setAttrs(group, { opacity: shown ? 1 : 0 });
       const node = this.nodes.get(nodeId);
-      if (node) setAttrs(group, { transform: `translate(${node.x} ${node.y})` });
+      if (node) setAttrs(group, { transform: `translate(${node.x} ${node.y - this.lift(nodeId)})` });
 
       const badge = this.badges.get(nodeId);
       if (badge) {
@@ -172,6 +172,9 @@ export class NetworkView {
         badge.classList.toggle('is-live', live);
       }
     }
+
+    // A slab appears with its first shown node; during the replay, the critical nodes' slabs.
+    this.regions.show(visible);
 
     const current = step.kind === 'move' ? linkKey(step.from, step.to) : '';
     for (const [key, line] of this.links) {
@@ -193,8 +196,7 @@ export class NetworkView {
       setAttrs(this.token, { opacity: 0 });
     }
 
-    this.cameraFrom = this.camera;
-    this.cameraTo = context.replay ? this.frameFor([...this.criticalNodes]) : this.frameFor(involved);
+    this.camera.aim(context.replay ? this.frameFor([...this.criticalNodes]) : this.frameFor(involved));
   }
 
   update(step: Step, t: number): void {
@@ -204,7 +206,7 @@ export class NetworkView {
       const node = this.nodes.get(nodeId);
       if (!node) continue;
       const appear = Math.min(1, t * 1.6);
-      setAttrs(group, { opacity: appear, transform: `translate(${node.x} ${node.y + (1 - appear) * 18})` });
+      setAttrs(group, { opacity: appear, transform: `translate(${node.x} ${node.y - this.lift(nodeId) + (1 - appear) * 18})` });
     }
     const current = step.kind === 'move' ? linkKey(step.from, step.to) : '';
     for (const [key, line] of this.links) {
@@ -213,20 +215,22 @@ export class NetworkView {
       if (!this.replay && (firstHere || sideNow)) setAttrs(line, { opacity: Math.min(1, t * 2) });
     }
     if (step.kind === 'move') this.placeToken(step, t);
-
-    const a = this.cameraFrom;
-    const b = this.cameraTo;
-    this.camera = { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), w: lerp(a.w, b.w, t), h: lerp(a.h, b.h, t) };
-    this.applyCamera(this.camera);
+    this.camera.update(t);
   }
 
   /** Re-aims the camera at the current step at once, e.g. after the element was resized. */
   refit(): void {
     if (!this.step) return;
-    this.camera = this.frameFor(this.replay ? [...this.criticalNodes] : this.involved(this.step));
-    this.cameraFrom = this.camera;
-    this.cameraTo = this.camera;
-    this.applyCamera(this.camera);
+    this.camera.jump(this.frameFor(this.replay ? [...this.criticalNodes] : this.involved(this.step)));
+  }
+
+  private lift(nodeId: string): number {
+    return this.lifts.get(nodeId) ?? 0;
+  }
+
+  /** Where links attach to a node: above its base, standing on its slab. */
+  private anchor(node: TopicNode): [number, number] {
+    return [node.x, node.y - this.lift(node.id) - ANCHOR_Z];
   }
 
   private involved(step: Step): string[] {
@@ -257,8 +261,8 @@ export class NetworkView {
     const a = this.nodes.get(step.from);
     const b = this.nodes.get(step.to);
     if (!a || !b) return;
-    const [ax, ay] = anchor(a);
-    const [bx, by] = anchor(b);
+    const [ax, ay] = this.anchor(a);
+    const [bx, by] = this.anchor(b);
     const len = Math.hypot(bx - ax, by - ay) || 1;
     const clear = Math.min(CLEAR, len / 3);
     const ux = (bx - ax) / len;
@@ -276,45 +280,19 @@ export class NetworkView {
     setAttrs(this.tokenText, { x: (left + 9).toFixed(2), y: (top + 13).toFixed(2) });
   }
 
-  /** The viewBox that frames the given nodes, padded and matched to the element's aspect ratio. */
+  /** The camera framing for these nodes: each node's illustration and label, standing on its slab. */
   private frameFor(nodeIds: string[]): Box {
-    let x0 = Infinity;
-    let y0 = Infinity;
-    let x1 = -Infinity;
-    let y1 = -Infinity;
+    const areas: Box[] = [];
     for (const id of nodeIds) {
       const n = this.nodes.get(id);
       if (!n) continue;
-      x0 = Math.min(x0, n.x - 90);
-      x1 = Math.max(x1, n.x + 90);
-      y0 = Math.min(y0, n.y - ICON_TOP - 50);
-      y1 = Math.max(y1, n.y + 76);
+      const top = n.y - this.lift(id) - ICON_TOP - 50;
+      areas.push({ x: n.x - 90, y: top, w: 180, h: n.y - this.lift(id) + 76 - top });
     }
-    if (!Number.isFinite(x0)) return { x: 0, y: 0, w: this.lesson.world.width, h: this.lesson.world.height };
-    const rect = this.element.getBoundingClientRect();
-    const aspect = rect.width > 0 && rect.height > 0 ? rect.width / rect.height : 1.6;
-    let w = Math.max(x1 - x0 + 80, MIN_FRAME.w);
-    let h = Math.max(y1 - y0 + 60, MIN_FRAME.h);
-    if (w / h > aspect) h = w / aspect;
-    else w = h * aspect;
-    const cx = (x0 + x1) / 2;
-    const cy = (y0 + y1) / 2;
-    return { x: cx - w / 2, y: cy - h / 2, w, h };
+    return this.camera.frame(areas);
   }
-
-  private applyCamera(box: Box): void {
-    this.element.setAttribute('viewBox', `${box.x.toFixed(1)} ${box.y.toFixed(1)} ${box.w.toFixed(1)} ${box.h.toFixed(1)}`);
-  }
-}
-
-function anchor(node: TopicNode): [number, number] {
-  return [node.x, node.y - ANCHOR_Z];
 }
 
 function linkKey(a: string, b: string): string {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
 }

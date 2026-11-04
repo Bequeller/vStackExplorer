@@ -21,6 +21,7 @@
   --kind-app: #2a8a3e;
   --kind-storage: #8a4b1f;
   --kind-cloud: #9c36b5;
+  --region: #8b8f99;
   --token-request: #c2255c;
   --token-response: #0b7d8f;
   --token-call: #5b3cc4;
@@ -63,6 +64,7 @@
     --kind-app: #62d07b;
     --kind-storage: #d89d6c;
     --kind-cloud: #e599f7;
+    --region: #5b6b8a;
     --token-request: #ff6b9c;
     --token-response: #3fd0e3;
     --token-call: #a98dff;
@@ -98,6 +100,7 @@
   --kind-app: #62d07b;
   --kind-storage: #d89d6c;
   --kind-cloud: #e599f7;
+  --region: #5b6b8a;
   --token-request: #ff6b9c;
   --token-response: #3fd0e3;
   --token-call: #a98dff;
@@ -1847,4 +1850,56 @@ h3 {
 .field-where {
   font: 11px var(--font-mono);
   color: var(--faint);
+}
+
+/* Regions: stacked isometric slabs (decision 0015). One neutral token, lighter top at each depth;
+   never a kind color, because color means actor kind. */
+.region {
+  opacity: 0;
+  transition: opacity 300ms ease;
+}
+
+.region.is-shown {
+  opacity: 1;
+}
+
+.region-top,
+.region-side {
+  stroke: color-mix(in srgb, var(--region) 70%, var(--bg-2));
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+}
+
+.region-side--left { fill: color-mix(in srgb, var(--region) 45%, var(--bg-2)); }
+.region-side--right { fill: color-mix(in srgb, var(--region) 32%, var(--bg-2)); }
+.region--d1 .region-top { fill: color-mix(in srgb, var(--region) 22%, var(--bg-2)); }
+.region--d2 .region-top { fill: color-mix(in srgb, var(--region) 32%, var(--bg-2)); }
+.region--d3 .region-top { fill: color-mix(in srgb, var(--region) 42%, var(--bg-2)); }
+.region--d4 .region-top { fill: color-mix(in srgb, var(--region) 52%, var(--bg-2)); }
+
+.region--managed .region-top,
+.region--managed .region-side {
+  stroke-dasharray: 8 6;
+  fill-opacity: 0.55;
+}
+
+.region-label {
+  font: 700 26px var(--font-mono);
+  letter-spacing: 0.04em;
+  fill: color-mix(in srgb, var(--region) 80%, var(--text));
+}
+
+.seq-band {
+  fill: color-mix(in srgb, var(--region) 10%, var(--bg-2));
+  stroke: color-mix(in srgb, var(--region) 55%, var(--bg-2));
+  stroke-width: 1.2;
+}
+
+.seq-band--managed {
+  stroke-dasharray: 6 5;
+}
+
+.seq-band-label {
+  font: 700 11.5px var(--font-mono);
+  fill: var(--muted);
 }

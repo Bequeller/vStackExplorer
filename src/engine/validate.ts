@@ -1,5 +1,6 @@
 import type { DecodedRecord, Lesson, NodeKind, Source, StateView, TopicMeta } from '../lessons/types';
 import { iconKinds } from '../scene/icons';
+import { contains, overlaps, regionFootprints, toGround } from '../scene/regions';
 import { layoutRecord, parseHex } from './record';
 
 /** Limits from docs/DESIGN.md (step-details panel) and decision 0010 (lesson shape). */
@@ -47,7 +48,75 @@ export function validateTopic(meta: TopicMeta): string[] {
     if (!iconKinds.includes(node.icon)) at(where, `icon "${node.icon}" is not an IconKind (see docs/DESIGN.md, Icons)`);
     if (!inside(node.x, layout.width) || !inside(node.y, layout.height)) at(where, 'position is outside the layout');
   }
+  checkRegions(layout, ids, (where, m) => at(where, m));
   return errors;
+}
+
+/** Region rules (decision 0015): a tree of slabs whose computed footprints do not collide. */
+function checkRegions(layout: TopicMeta['layout'], nodeIds: Set<string>, at: (where: string, message: string) => void): void {
+  const regions = layout.regions ?? [];
+  const regionIds = new Set<string>();
+  const owner = new Map<string, string>();
+  let structural = true;
+  for (const region of regions) {
+    const where = `region ${region.id}`;
+    unknownKeys(region, ['id', 'label', 'nodes', 'parent', 'managed'], (k) => at(where, `unknown key "${k}"`));
+    if (!nonEmpty(region.id)) at('regions', 'every region needs an id');
+    if (regionIds.has(region.id)) at(where, 'duplicate region id');
+    regionIds.add(region.id);
+    if (!nonEmpty(region.label)) at(where, 'label is empty');
+    for (const id of region.nodes ?? []) {
+      if (!nodeIds.has(id)) at(where, `node "${id}" is not in the layout`);
+      const other = owner.get(id);
+      if (other) {
+        at(where, `node "${id}" is already in region "${other}"; a node is in at most one region`);
+        structural = false;
+      }
+      owner.set(id, region.id);
+    }
+  }
+  for (const region of regions) {
+    if (region.parent === undefined) continue;
+    if (!regionIds.has(region.parent)) {
+      at(`region ${region.id}`, `parent "${region.parent}" is not a region`);
+      structural = false;
+      continue;
+    }
+    // Walk up the parents; coming back to this region means a cycle.
+    const seen = new Set([region.id]);
+    for (let p = regions.find((r) => r.id === region.parent); p; p = regions.find((r) => r.id === p?.parent)) {
+      if (seen.has(p.id)) {
+        at(`region ${region.id}`, 'parents form a cycle; regions must form a tree');
+        structural = false;
+        break;
+      }
+      seen.add(p.id);
+    }
+  }
+  if (!structural || regions.length === 0) return;
+
+  const footprints = regionFootprints(layout);
+  const list = [...footprints.values()];
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const a = list[i]!;
+      const b = list[j]!;
+      if (a.parent === b.parent && overlaps(a, b)) at(`region ${a.id}`, `its slab overlaps sibling region "${b.id}"; move their nodes apart`);
+    }
+  }
+  // A node outside a region must not stand under that region's slab.
+  const ancestors = (regionId: string | undefined): Set<string> => {
+    const out = new Set<string>();
+    for (let r = regions.find((x) => x.id === regionId); r; r = regions.find((x) => x.id === r?.parent)) out.add(r.id);
+    return out;
+  };
+  for (const node of layout.nodes) {
+    const [gx, gy] = toGround(node.x, node.y);
+    const holders = ancestors(owner.get(node.id));
+    for (const f of list) {
+      if (!holders.has(f.id) && contains(f, gx, gy)) at(`layout node ${node.id}`, `stands inside region "${f.id}"'s slab but is not in it`);
+    }
+  }
 }
 
 /**

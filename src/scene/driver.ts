@@ -1,4 +1,4 @@
-import type { Lesson, StateView, Step, TopicNode } from '../lessons/types';
+import type { Lesson, StateView, Step, TopicLayout, TopicNode } from '../lessons/types';
 
 /** State view of every node that has one, keyed by node id. */
 export type NodeStates = Readonly<Record<string, StateView>>;
@@ -10,6 +10,8 @@ export type SceneMode = 'network' | 'sequence';
 export interface PlacedLesson extends Omit<Lesson, 'nodes'> {
   nodes: TopicNode[];
   world: { width: number; height: number };
+  /** The whole topic map, for geometry shared by every lesson (region slabs). */
+  layout: TopicLayout;
 }
 
 export interface StepContext {

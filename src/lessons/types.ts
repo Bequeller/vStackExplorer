@@ -103,6 +103,26 @@ export interface TopicLayout {
   width: number;
   height: number;
   nodes: TopicNode[];
+  /** Boundaries drawn as stacked isometric slabs: a process, a machine, a VPC (decision 0015). */
+  regions?: Region[];
+}
+
+/**
+ * A boundary on the topic map: who runs it, which process or machine holds it. The engine draws
+ * it as an isometric slab whose footprint it computes from the member nodes; nested regions stack
+ * one slab higher, and each node stands on its innermost slab. Lay out a region's members along
+ * the iso ground grid (docs/DESIGN.md, Principles), or the slab comes out wide and loose.
+ */
+export interface Region {
+  id: string;
+  /** Painted on the slab's floor along its near edge. */
+  label: string;
+  /** Ids of the topic nodes directly inside this region (not those inside its child regions). */
+  nodes: string[];
+  /** Id of the region that holds this one. */
+  parent?: string;
+  /** True for a part the team does not run, such as the EKS control plane. Drawn dashed. */
+  managed?: boolean;
 }
 
 /**

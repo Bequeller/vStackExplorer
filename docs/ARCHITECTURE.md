@@ -10,7 +10,7 @@ sources: [docs/decisions/0002-vite-vanilla-ts-svg.md, docs/decisions/0003-lesson
 | Module | Owns | Must not |
 |---|---|---|
 | `src/engine/` | Step playback (play, pause, next, previous, seek, restart, speed, replay), timing, easing, reduced-motion handling, topic placement (`place.ts`), the event timeline (`timeline.ts`), record layout (`record.ts`), validation (`validate.ts`) | Know any topic |
-| `src/scene/` | Our own isometric illustrations (`iso.ts`, `icons.ts`), the network view with progressive reveal, eased camera, critical/side links, tokens, and state badges (`networkView.ts`), the sequence view (`sequenceView.ts`), and the `SceneDriver` interface (`driver.ts`) | Hold lesson text; draw node-state tables |
+| `src/scene/` | Our own isometric illustrations (`iso.ts`, `icons.ts`), the network view with progressive reveal, critical/side links, tokens, and state badges (`networkView.ts`), the eased camera (`camera.ts`), region slabs and their footprint geometry (`regions.ts`), the sequence view (`sequenceView.ts`), and the `SceneDriver` interface (`driver.ts`) | Hold lesson text; draw node-state tables |
 | `src/ui/` | The app shell (top bar, topic drawer), step details, event log, decoder, overview sheet, player controls, theme, routing, progress, lesson registry | Touch SVG internals directly (it calls `mountLesson` from `engine`) |
 | `src/lessons/<topic>/` | One folder per topic: `meta.ts` (title, group, order, pinned versions, lesson ids, and the topic's map) and one `<lesson-id>.ts` per lesson | Import anything but `src/lessons/types.ts` — not even a sibling file |
 | `src/lessons/types.ts` | The lesson schema types | Depend on anything else |
@@ -31,11 +31,15 @@ A topic folder holds `meta.ts` (`export const meta: TopicMeta`) and one file per
 ### Topic: `meta.ts`
 
 - `topic` (= folder name), `title`, `group` (drawer tab: `Spring`, `MySQL`, `Kafka`, `Redis`, `EKS`), `summary`, `order`, `versions` (pinned, checked on the official site on `checkedOn`), `lessons` (ids in study order).
-- `layout`: the topic's one map, shared by all its lessons (docs/DESIGN.md: one layout per topic). `width`, `height`, and `nodes`. Each node has `id`, `label`, optional `sublabel`, `kind`, `icon`, and the base-center `x`, `y` of its illustration.
+- `layout`: the topic's one map, shared by all its lessons (docs/DESIGN.md: one layout per topic). `width`, `height`, `nodes`, and optional `regions`. Each node has `id`, `label`, optional `sublabel`, `kind`, `icon`, and the base-center `x`, `y` of its illustration.
   - `kind` picks the color: `client`, `container`, `framework`, `app`, `storage`, `cloud` (docs/DESIGN.md, Color meaning).
   - `icon` picks the illustration: one of the `IconKind`s in docs/DESIGN.md (Icons).
   - Place the critical path so it reads in one direction (outside → inside, caller → callee, memory above disk). Leave room for later lessons: a node may be on the map before any lesson uses it.
-  - Spacing: an illustration with its label needs about 220 units across and 240 down (the Spring map uses a 240-unit grid). Plans in `docs/research/` that give positions on a 1000 × 640 grid should be scaled by about 2.
+  - Spacing: an illustration with its label needs about 220 units across and 240 down. Plans in `docs/research/` that give positions on a 1000 × 640 grid should be scaled by about 2.
+  - Lay out nodes on the iso ground grid: pick ground coordinates `(gx, gy)` and place each node at screen `x = (gx − gy)·cos30 + ox`, `y = (gx + gy)·0.5 + oy`. The Spring map uses 300-unit ground cells: the request runs along ground x.
+- `layout.regions` (optional, decision 0015): boundaries such as a process, a machine, or a VPC, drawn as stacked isometric slabs. Each is `{ id, label, nodes, parent?, managed? }`. `nodes` lists the node ids directly inside it, `parent` nests it in another region, and `managed: true` marks a part the team does not run (drawn dashed).
+  - The engine computes each slab's footprint: the ground bounding box of its members and child slabs, plus a 120-unit margin. Each nesting level stacks one slab (12 units) higher, and each node stands on its innermost slab. A slab appears with its first shown node.
+  - Rules (`validateTopic`): region ids are unique; every member and parent exists; a node is in at most one region; parents form a tree; sibling slabs do not overlap; a node that is not in a region does not stand under its slab. Members of one region must sit along the iso ground grid, or the slab comes out loose and catches other nodes.
 
 ### Lesson
 

@@ -18,6 +18,7 @@ Protocol Explorer (protocol-explorer-alpha.vercel.app, by Dilum Sanjaya), played
 2. **Topic drawer.** Slides over from the left. Tabs filter by group (All, Spring, MySQL, EKS); each row shows the lesson name, a subtitle, and a progress dot (not started, in progress, done).
 3. **Illustrated scene.**
    - Nodes are isometric line-art illustrations drawn in our own SVG: client laptop, Tomcat server, filter stack, `DispatcherServlet` hub, controller, service, repository, database cylinder, Kubernetes node, and so on. They are not rectangles with text.
+   - Boundaries (a process, a machine, a VPC, a managed control plane) are stacked isometric slabs under the nodes, not flat outlines. A nested region sits one slab higher, each node stands on its innermost slab, and the region's name is painted on the floor along the near edge. Managed parts are dashed (decision 0015).
    - The scene sits on a subtle isometric grid background.
    - **Progressive reveal:** the scene starts with only the first actor. Each node appears, with a short draw-in, on the step where it first matters.
    - **Camera:** the view pans and zooms smoothly (eased viewBox transition) to frame the nodes the current step uses.
@@ -45,6 +46,7 @@ Protocol Explorer (protocol-explorer-alpha.vercel.app, by Dilum Sanjaya), played
 
 - The north star is in `docs/PRODUCT.md`: structure and critical-path flow, one connected visual picture, imprinted in 3 or fewer viewings. Every design choice serves it. The content rule there ("must-know only") applies to every node, step, and fact.
 - Structure first, then flow. The scene's layout is the mental map. Components stay in fixed, meaningful positions (outside → inside, caller → callee, memory above disk). The critical path reads in one direction across the scene.
+- Lay out region members along the iso ground grid. A region (a process, a machine, a VPC) is a slab whose footprint is the ground bounding box of its members, so members that sit along the iso axes give a tight slab. A row that is level on screen makes a wide, loose diamond that catches other nodes.
 - One layout per topic. Lessons in the same topic reuse the same node positions, so each lesson adds to one map instead of starting a new one.
 - The critical path is visually dominant. Side paths and failure branches are drawn weaker and appear only when they matter.
 - End every lesson with a replay: the whole critical path plays once, continuously, without stops. That is the picture to recall.
@@ -72,6 +74,7 @@ Defined once as CSS custom properties in `src/styles/app.css`, with light and da
 | Token `data` | `--token-data` (amber) | A value or payload handed between components |
 | State change | `--token-state` (yellow) | A `mutate` step: node badge, state card, log dot |
 | Decoder segments | `--seg-0` … `--seg-5` | Bands of a decoded message, in segment order |
+| Region slab | `--region` (neutral gray-blue) | Every region slab, with a lighter top at each depth. Never a kind color: a boundary is not an actor |
 
 Changed rows in a node-state panel get the `--hl` background; the old value fades out with a strike-through while the new one fades in.
 
