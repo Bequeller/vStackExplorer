@@ -3,7 +3,10 @@
 import './styles/fonts.css';
 import './styles/app.css';
 import type { NodeKind } from './lessons/types';
+import { lesson } from '../tests/fixtures/state-views';
+import { diffView } from './engine/states';
 import { drawIcon, iconKinds } from './scene/icons';
+import { isStructural, stateViewSvg } from './scene/stateViews';
 import { svg, text } from './scene/svg';
 
 const kinds: NodeKind[] = ['client', 'container', 'framework', 'app', 'storage', 'cloud'];
@@ -18,4 +21,16 @@ if (root) {
     drawIcon(g, icon);
     text(icon, { class: 'node-label', x: 0, y: 38, 'text-anchor': 'middle' }, g);
   });
+  // State view renderers (log, queue, tree), at the end of each fixture mutate.
+  for (const step of lesson.steps) {
+    if (step.kind !== 'mutate' || !isStructural(step.after)) continue;
+    const before = lesson.states.find((st) => st.node === step.node && (step.state === undefined || st.id === step.state))?.view;
+    const figure = document.createElement('figure');
+    figure.className = 'gallery-view';
+    figure.append(stateViewSvg(step.after, diffView(before, step.after)));
+    const caption = document.createElement('figcaption');
+    caption.textContent = `${step.after.type}: ${step.title}`;
+    figure.append(caption);
+    root.append(figure);
+  }
 }

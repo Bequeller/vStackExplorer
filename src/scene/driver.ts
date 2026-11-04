@@ -14,9 +14,31 @@ export interface PlacedLesson extends Omit<Lesson, 'nodes'> {
   layout: TopicLayout;
 }
 
+/** What changed in one state view, per view type (computed by the engine's `diffView`). */
+export type ViewDiff =
+  | { type: 'rows'; changed: number[] }
+  | { type: 'log'; added: number[]; markers: { name: string; from: number | null; to: number | null }[] }
+  | {
+      type: 'queue';
+      items: { item: string; from: number | null; to: number | null }[];
+      marks: { name: string; from: number | null; to: number | null }[];
+    }
+  | { type: 'tree'; added: string[]; removed: string[]; changed: string[] };
+
+/** The view a mutate step changes, with its diff. */
+export interface StateChange {
+  node: string;
+  title: string;
+  before: StateView | undefined;
+  after: StateView;
+  diff: ViewDiff;
+}
+
 export interface StepContext {
   /** True while the end-of-lesson replay runs: show the whole critical path at once. */
   replay: boolean;
+  /** For a mutate step: the view it changes and what changed. */
+  state?: StateChange;
 }
 
 /**

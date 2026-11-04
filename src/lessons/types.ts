@@ -159,7 +159,45 @@ export interface ListView {
   items: string[];
 }
 
-export type StateView = TableView | ListView;
+/**
+ * An append-only log with named markers at offsets: a partition log with HW and LEO, a redo log
+ * with the current LSN and the checkpoint. Drawn as a strip of entries with markers under it.
+ */
+export interface LogView {
+  type: 'log';
+  /** In ascending offset order. Show only the entries the step needs (the scene shows the last 8). */
+  entries: { offset: number; label: string }[];
+  /** A marker may point one past the last entry (LEO, the next write position). */
+  markers: { name: string; offset: number }[];
+}
+
+/**
+ * An ordered queue with named boundaries: an LRU list with its young/old midpoint, a flush list,
+ * an eviction pool. Items must be unique, so a move (an item to the head) can be drawn.
+ */
+export interface QueueView {
+  type: 'queue';
+  /** From head to tail. */
+  items: string[];
+  /** `at` is a boundary between items: 0 is before the head, items.length is after the tail. */
+  marks: { name: string; at: number }[];
+}
+
+/** One page of a tree view. */
+export interface TreePage {
+  id: string;
+  keys: string[];
+  /** Ids of this page's children in the next level, in order. */
+  children?: string[];
+}
+
+/** A tree of pages by level, root level first: a B+Tree index before and after a page split. */
+export interface TreeView {
+  type: 'tree';
+  levels: TreePage[][];
+}
+
+export type StateView = TableView | ListView | LogView | QueueView | TreeView;
 
 /**
  * A node's inner state and its initial content. It is not drawn on the scene: the node gets
@@ -167,7 +205,13 @@ export type StateView = TableView | ListView;
  */
 export interface NodeState {
   node: string;
+  /** Names this view when the node has more than one (e.g. a buffer pool's `lru` and `flush`). */
+  id?: string;
   title: string;
+  /**
+   * `table` and `list` show only in the step details. `log`, `queue`, and `tree` also show as a
+   * small inset next to the node while a mutate step changes them (decision 0015).
+   */
   view: StateView;
 }
 
@@ -291,6 +335,8 @@ export interface MoveStep extends StepBase {
 export interface MutateStep extends StepBase {
   kind: 'mutate';
   node: string;
+  /** The `NodeState.id` this step changes. Required when the node has more than one view. */
+  state?: string;
   after: StateView;
 }
 

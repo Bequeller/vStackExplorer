@@ -1,8 +1,8 @@
-import type { Lesson, Step } from '../lessons/types';
-import type { SceneDriver } from '../scene/driver';
+import type { Lesson, NodeState, Step } from '../lessons/types';
+import type { SceneDriver, StateChange } from '../scene/driver';
 import { browserClock, type Clock } from './clock';
 import { easeInOutCubic, easeOutQuart } from './easing';
-import { initialStates, statesAfterEachStep, type NodeStates } from './states';
+import { diffView, initialStates, mutateKey, stateOf, statesAfterEachStep, type NodeStates } from './states';
 
 export interface PlayerTimings {
   /** Duration of a `move` step animation, in ms. */
@@ -50,6 +50,7 @@ type Phase = 'idle' | 'animating' | 'dwell';
  */
 export class Player {
   private readonly steps: readonly Step[];
+  private readonly states: NodeState[];
   private readonly initial: NodeStates;
   private readonly after: NodeStates[];
   private readonly critical: number[];
@@ -75,6 +76,7 @@ export class Player {
   ) {
     if (lesson.steps.length === 0) throw new Error('A lesson needs at least one step.');
     this.steps = lesson.steps;
+    this.states = lesson.states;
     this.initial = initialStates(lesson);
     this.after = statesAfterEachStep(lesson);
     this.critical = lesson.steps.flatMap((s, i) => (s.path === 'critical' ? [i] : []));
@@ -211,7 +213,11 @@ export class Player {
     this.index = this.clamp(index);
     const step = this.currentStep();
     const before = this.index === 0 ? this.initial : this.statesAfter(this.index - 1);
-    this.scene.begin(step, this.index, before, this.statesAfter(this.index), { replay: this.replayQueue !== null });
+    const after = this.statesAfter(this.index);
+    this.scene.begin(step, this.index, before, after, {
+      replay: this.replayQueue !== null,
+      ...(step.kind === 'mutate' ? { state: this.change(step, before, after) } : {}),
+    });
     if (this.reducedMotion()) {
       this.scene.update(step, 1);
       this.enterAfterAnimation();
@@ -219,6 +225,19 @@ export class Player {
       this.setPhase('animating');
     }
     this.emit();
+  }
+
+  /** The view a mutate step changes, before and after, with its per-type diff. */
+  private change(step: Step & { kind: 'mutate' }, before: NodeStates, after: NodeStates): StateChange {
+    const key = mutateKey(step);
+    const view = after[key] ?? step.after;
+    return {
+      node: step.node,
+      title: stateOf(this.states, step)?.title ?? '',
+      before: before[key],
+      after: view,
+      diff: diffView(before[key], view),
+    };
   }
 
   private currentStep(): Step {

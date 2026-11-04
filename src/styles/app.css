@@ -1903,3 +1903,110 @@ h3 {
   font: 700 11.5px var(--font-mono);
   fill: var(--muted);
 }
+
+/* Structural state views: log, queue, tree (decision 0015). Inset on the scene during the mutate
+   step, full drawing in the step details. */
+.sv-cell rect,
+.sv-item rect,
+.sv-page rect {
+  fill: var(--surface);
+  stroke: var(--border);
+  stroke-width: 1.2;
+}
+
+.sv-cell.is-new rect,
+.sv-item.is-new rect,
+.sv-page.is-new rect {
+  fill: color-mix(in srgb, var(--token-state) 18%, var(--surface));
+  stroke: var(--token-state);
+}
+
+.sv-item.is-moved rect,
+.sv-page.is-changed rect {
+  stroke: var(--token-state);
+  stroke-width: 2;
+}
+
+.sv-text {
+  font: 600 11.5px var(--font-mono);
+  fill: var(--text);
+}
+
+.sv-offset {
+  font: 9.5px var(--font-mono);
+  fill: var(--faint);
+}
+
+.sv-marker polygon {
+  fill: var(--muted);
+}
+
+.sv-marker.is-moved polygon {
+  fill: var(--token-state);
+}
+
+.sv-mark-label {
+  font: 700 10.5px var(--font-mono);
+  fill: var(--muted);
+}
+
+.sv-marker.is-moved .sv-mark-label,
+.sv-mark.is-moved .sv-mark-label {
+  fill: var(--text);
+}
+
+.sv-mark line {
+  stroke: var(--muted);
+  stroke-width: 2;
+  stroke-dasharray: 3 3;
+}
+
+.sv-mark.is-moved line {
+  stroke: var(--token-state);
+}
+
+.sv-edge {
+  stroke: var(--faint);
+  stroke-width: 1.2;
+}
+
+.state-inset-card {
+  fill: var(--surface);
+  stroke: var(--token-state);
+  stroke-width: 1.6;
+  filter: drop-shadow(0 4px 10px rgb(0 0 0 / 18%));
+}
+
+.state-inset-tie {
+  stroke: var(--token-state);
+  stroke-width: 1.4;
+  stroke-dasharray: 4 4;
+}
+
+.state-inset-title {
+  font: 700 12.5px var(--font-sans);
+  fill: var(--text);
+}
+
+.state-view {
+  overflow-x: auto;
+}
+
+.state-view-svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.gallery-view {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--bg-2);
+}
+
+.gallery-view figcaption {
+  font: 12px var(--font-mono);
+  color: var(--muted);
+}

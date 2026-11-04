@@ -13,7 +13,8 @@ export { buildTimeline, formatTime } from './timeline';
 export type { EventKind, TimelineEvent } from './timeline';
 export { layoutRecord, recordBytes } from './record';
 export type { RecordLayout, RecordRun } from './record';
-export { changedRows } from './states';
+export { changedRows, diffView, mutateKey, stateKey, stateOf } from './states';
+export { isStructural, stateViewSvg as renderStateView } from '../scene/stateViews';
 export { placeLesson } from './place';
 export type { PlacedLesson, SceneMode };
 

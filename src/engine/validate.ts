@@ -2,6 +2,7 @@ import type { DecodedRecord, Lesson, NodeKind, Source, StateView, TopicMeta } fr
 import { iconKinds } from '../scene/icons';
 import { contains, overlaps, regionFootprints, toGround } from '../scene/regions';
 import { layoutRecord, parseHex } from './record';
+import { mutateKey, stateKey } from './states';
 
 /** Limits from docs/DESIGN.md (step-details panel) and decision 0010 (lesson shape). */
 export const limits = {
@@ -19,7 +20,7 @@ const NODE_KINDS: readonly NodeKind[] = ['client', 'container', 'framework', 'ap
 const LESSON_KEYS = ['id', 'topic', 'title', 'subtitle', 'summary', 'versions', 'layers', 'nodes', 'states', 'steps', 'overview', 'selfCheck'];
 const STEP_KEYS = ['id', 'layer', 'path', 'kind', 'title', 'summary', 'detail', 'facts', 'lines', 'record', 'sources'];
 const MOVE_KEYS = [...STEP_KEYS, 'from', 'to', 'token'];
-const MUTATE_KEYS = [...STEP_KEYS, 'node', 'after'];
+const MUTATE_KEYS = [...STEP_KEYS, 'node', 'state', 'after'];
 const RECORD_KEYS = ['title', 'protocol', 'segments', 'fields', 'wire', 'format'];
 const FIELD_KEYS = ['name', 'value', 'note', 'segment', 'span', 'offset', 'length', 'example'];
 
@@ -165,11 +166,17 @@ export function validateLesson(lesson: Lesson, meta: TopicMeta): string[] {
   }
 
   const stateViews = new Map<string, StateView>();
+  const viewCount = new Map<string, number>();
+  for (const state of lesson.states ?? []) viewCount.set(state.node, (viewCount.get(state.node) ?? 0) + 1);
   for (const state of lesson.states ?? []) {
-    if (!nodeIds.has(state.node)) at(`state ${state.node}`, 'refers to a node the lesson does not list');
-    if (stateViews.has(state.node)) at(`state ${state.node}`, 'a node has at most one state view');
-    stateViews.set(state.node, state.view);
-    checkView(state.view, (m) => at(`state ${state.node}`, m));
+    const key = stateKey(state.node, state.id);
+    const where = `state ${key}`;
+    unknownKeys(state, ['node', 'id', 'title', 'view'], (k) => at(where, `unknown key "${k}"`));
+    if (!nodeIds.has(state.node)) at(where, 'refers to a node the lesson does not list');
+    if ((viewCount.get(state.node) ?? 0) > 1 && !nonEmpty(state.id)) at(where, 'a node with more than one view must give each view an id');
+    if (stateViews.has(key)) at(where, 'duplicate state view');
+    stateViews.set(key, state.view);
+    checkView(state.view, (m) => at(where, m));
   }
 
   if (!lesson.steps?.length) at('steps', 'needs at least one step');
@@ -211,10 +218,13 @@ export function validateLesson(lesson: Lesson, meta: TopicMeta): string[] {
     } else if (step.kind === 'mutate') {
       unknownKeys(step, MUTATE_KEYS, (k) => at(where, `"${k}" is not a mutate field`));
       used.add(step.node);
-      const before = current.get(step.node);
+      const key = mutateKey(step);
+      const before = current.get(key);
       if (!nodeIds.has(step.node)) at(where, `node "${step.node}" is not a node the lesson lists`);
-      if (!before) {
-        at(where, `node "${step.node}" has no state view (table or list) in states`);
+      if ((viewCount.get(step.node) ?? 0) > 1 && step.state === undefined) {
+        at(where, `node "${step.node}" has more than one view; name the one this step changes with "state"`);
+      } else if (!before) {
+        at(where, `node "${step.node}" has no state view${step.state ? ` "${step.state}"` : ''} in states`);
       } else if (before.type !== step.after?.type) {
         at(where, `after must be the node's whole ${before.type} view`);
       } else {
@@ -222,7 +232,7 @@ export function validateLesson(lesson: Lesson, meta: TopicMeta): string[] {
           at(where, "after must keep the state view's columns");
         }
         if (JSON.stringify(before) === JSON.stringify(step.after)) at(where, 'after is the same as before; a mutate must change state');
-        current.set(step.node, step.after);
+        current.set(key, step.after);
       }
       if (step.after) checkView(step.after, (m) => at(where, m));
     } else {
@@ -298,8 +308,31 @@ function checkView(view: StateView, fail: (message: string) => void): void {
     });
   } else if (view.type === 'list') {
     if (view.items.length === 0) fail('a list needs at least one item');
+  } else if (view.type === 'log') {
+    const offsets = view.entries.map((e) => e.offset);
+    if (offsets.some((o, i) => !Number.isFinite(o) || (i > 0 && o <= offsets[i - 1]!))) fail('log entries need finite offsets in ascending order');
+    for (const m of view.markers) {
+      if (!nonEmpty(m.name)) fail('a log marker needs a name');
+      if (!Number.isFinite(m.offset) || m.offset < 0) fail(`log marker "${m.name}" needs an offset ≥ 0`);
+    }
+  } else if (view.type === 'queue') {
+    if (new Set(view.items).size !== view.items.length) fail('queue items must be unique, so a move can be drawn');
+    for (const m of view.marks) {
+      if (!nonEmpty(m.name)) fail('a queue mark needs a name');
+      if (!Number.isInteger(m.at) || m.at < 0 || m.at > view.items.length) fail(`queue mark "${m.name}" must be between 0 and ${view.items.length}`);
+    }
+  } else if (view.type === 'tree') {
+    if (!view.levels?.length) fail('a tree needs at least one level');
+    const ids = view.levels.flat().map((p) => p.id);
+    if (new Set(ids).size !== ids.length) fail('tree page ids must be unique');
+    view.levels.forEach((level, depth) => {
+      const below = new Set((view.levels[depth + 1] ?? []).map((p) => p.id));
+      for (const page of level) {
+        for (const child of page.children ?? []) if (!below.has(child)) fail(`tree page "${page.id}" has child "${child}" that is not in the next level`);
+      }
+    });
   } else {
-    fail('a state view must be a table or a list');
+    fail('a state view must be a table, list, log, queue, or tree');
   }
 }
 

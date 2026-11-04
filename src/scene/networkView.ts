@@ -4,6 +4,7 @@ import type { NodeStates, PlacedLesson, StepContext } from './driver';
 import { ICON_TOP, drawIcon } from './icons';
 import { COS30 } from './iso';
 import { RegionLayer, nodeLifts } from './regions';
+import { drawStateView, isStructural } from './stateViews';
 import { setAttrs, svg, text } from './svg';
 
 /** Height on the illustration where links attach, above the base center. */
@@ -21,9 +22,14 @@ function textWidth(value: string, fontSize: number): number {
   return em * fontSize;
 }
 
-function sameView(a: StateView | undefined, b: StateView | undefined): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+/** Whether any of a node's state views (keyed `node` or `node/id`) differs between two snapshots. */
+function nodeChanged(nodeId: string, a: NodeStates, b: NodeStates): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)].filter((k) => k === nodeId || k.startsWith(`${nodeId}/`)));
+  return [...keys].some((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
 }
+
+/** Gap between a node and its state inset, and the inset's padding. */
+const INSET_PAD = 12;
 
 /**
  * The illustrated network: isometric nodes on the topic's map. Critical-path nodes appear on the
@@ -57,6 +63,9 @@ export class NetworkView {
   private step: Step | undefined;
   private readonly camera: Camera;
   private readonly regions: RegionLayer;
+  private readonly insetLayer: SVGGElement;
+  /** The state inset shown during the current mutate step (at most one at a time). */
+  private inset: { group: SVGGElement; body: SVGGElement; box: Box; context: StepContext } | null = null;
   /** How high each node stands: the top of its innermost region slab. */
   private readonly lifts: Map<string, number>;
 
@@ -81,6 +90,7 @@ export class NetworkView {
     const linkLayer = svg('g', { class: 'links' }, this.element);
     const nodeLayer = svg('g', { class: 'nodes' }, this.element);
     const tokenLayer = svg('g', { class: 'token-layer' }, this.element);
+    this.insetLayer = svg('g', { class: 'inset-layer' }, this.element);
 
     lesson.steps.forEach((step, i) => {
       const critical = step.path === 'critical';
@@ -166,7 +176,7 @@ export class NetworkView {
 
       const badge = this.badges.get(nodeId);
       if (badge) {
-        const changed = !sameView(after[nodeId], this.initial[nodeId]);
+        const changed = nodeChanged(nodeId, after, this.initial);
         const live = step.kind === 'mutate' && step.node === nodeId;
         badge.classList.toggle('is-shown', changed || live);
         badge.classList.toggle('is-live', live);
@@ -196,7 +206,13 @@ export class NetworkView {
       setAttrs(this.token, { opacity: 0 });
     }
 
-    this.camera.aim(context.replay ? this.frameFor([...this.criticalNodes]) : this.frameFor(involved));
+    // A structural view (log, queue, tree) shows as an inset while its node mutates, then
+    // collapses back to the badge at the next step.
+    this.inset?.group.remove();
+    this.inset = context.state && isStructural(context.state.after) ? this.openInset(context) : null;
+
+    const framing = context.replay ? this.frameFor([...this.criticalNodes]) : this.frameFor(involved);
+    this.camera.aim(this.inset && !context.replay ? this.camera.frame([framing, this.inset.box]) : framing);
   }
 
   update(step: Step, t: number): void {
@@ -215,6 +231,7 @@ export class NetworkView {
       if (!this.replay && (firstHere || sideNow)) setAttrs(line, { opacity: Math.min(1, t * 2) });
     }
     if (step.kind === 'move') this.placeToken(step, t);
+    if (this.inset) this.drawInset(this.inset, t);
     this.camera.update(t);
   }
 
@@ -222,6 +239,33 @@ export class NetworkView {
   refit(): void {
     if (!this.step) return;
     this.camera.jump(this.frameFor(this.replay ? [...this.criticalNodes] : this.involved(this.step)));
+  }
+
+  private openInset(context: StepContext): { group: SVGGElement; body: SVGGElement; box: Box; context: StepContext } | null {
+    const node = context.state && this.nodes.get(context.state.node);
+    if (!node || !context.state) return null;
+    const group = svg('g', { class: 'state-inset' }, this.insetLayer);
+    const x = node.x + 70;
+    const y = node.y - this.lift(node.id) - ICON_TOP - 70;
+    svg('line', { class: 'state-inset-tie', x1: node.x + 20, y1: node.y - this.lift(node.id) - 50, x2: x, y2: y + 30 }, group);
+    svg('rect', { class: 'state-inset-card', x, y, rx: 10 }, group);
+    text(context.state.title, { class: 'state-inset-title', x: x + INSET_PAD, y: y + 20 }, group);
+    const body = svg('g', { transform: `translate(${x + INSET_PAD} ${y + 30})` }, group);
+    const inset = { group, body, box: { x, y, w: 0, h: 0 }, context };
+    this.drawInset(inset, 0);
+    return inset;
+  }
+
+  private drawInset(inset: { group: SVGGElement; body: SVGGElement; box: Box; context: StepContext }, t: number): void {
+    const change = inset.context.state;
+    if (!change || !isStructural(change.after)) return;
+    const size = drawStateView(inset.body, change.after, change.diff, t);
+    const card = inset.group.querySelector('.state-inset-card');
+    const w = Math.max(size.width, textWidth(change.title, 13) + 8) + INSET_PAD * 2;
+    const h = size.height + 30 + INSET_PAD;
+    card?.setAttribute('width', w.toFixed(1));
+    card?.setAttribute('height', h.toFixed(1));
+    inset.box = { ...inset.box, w, h };
   }
 
   private lift(nodeId: string): number {

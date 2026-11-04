@@ -1,4 +1,4 @@
-import { changedRows, formatTime, mountLesson, speeds, type EventKind, type LessonView, type PlacedLesson, type PlayerState, type SceneMode, type TimelineEvent } from '../engine';
+import { changedRows, diffView, type EventKind, formatTime, isStructural, type LessonView, mountLesson, mutateKey, type PlacedLesson, type PlayerState, renderStateView, type SceneMode, speeds, stateOf, type TimelineEvent } from '../engine';
 import type { Lesson, NodeKind, StateView, Step, TopicMeta } from '../lessons/types';
 import { createDecoder } from './decoder';
 import { h, inlineCode, prose, replace } from './dom';
@@ -171,9 +171,9 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
     const before = index === 0 ? undefined : view.player.statesAfter(index - 1);
     const after = view.player.statesAfter(index);
     renderDetails(details, placed, step, index, timeline[index], {
-      before: step.kind === 'mutate' ? before?.[step.node] ?? lesson.states.find((s) => s.node === step.node)?.view : undefined,
-      after: step.kind === 'mutate' ? after[step.node] : undefined,
-      stateTitle: step.kind === 'mutate' ? lesson.states.find((s) => s.node === step.node)?.title : undefined,
+      before: step.kind === 'mutate' ? before?.[mutateKey(step)] ?? stateOf(lesson.states, step)?.view : undefined,
+      after: step.kind === 'mutate' ? after[mutateKey(step)] : undefined,
+      stateTitle: step.kind === 'mutate' ? stateOf(lesson.states, step)?.title : undefined,
     });
     history.replaceState(null, '', lessonHref(lesson.topic, lesson.id, index));
     if (index === total - 1) markProgress(lesson.topic, lesson.id, 'done');
@@ -319,9 +319,17 @@ function renderDetails(root: HTMLElement, lesson: PlacedLesson, step: Step, inde
 }
 
 function renderState(title: string, before: StateView | undefined, after: StateView): HTMLElement {
+  // Logs, queues, and trees are drawn by the same renderer as the scene inset.
+  if (isStructural(after)) {
+    return h('div', { class: 'state-card' },
+      h('p', { class: 'state-title' }, h('span', { class: 'badge-dot' }), `상태 변경 · ${title}`),
+      h('div', { class: 'state-view' }, renderStateView(after, diffView(before, after))),
+    );
+  }
+  if (after.type !== 'table' && after.type !== 'list') return h('div', {});
   const changed = new Set(changedRows(before, after));
   const rows = after.type === 'table' ? after.rows : after.items.map((i) => [i]);
-  const oldRows = before ? (before.type === 'table' ? before.rows : before.items.map((i) => [i])) : [];
+  const oldRows = before?.type === 'table' ? before.rows : before?.type === 'list' ? before.items.map((i) => [i]) : [];
   return h('div', { class: 'state-card' },
     h('p', { class: 'state-title' }, h('span', { class: 'badge-dot' }), `상태 변경 · ${title}`),
     h('table', { class: 'state-table' },

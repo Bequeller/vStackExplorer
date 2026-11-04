@@ -10,12 +10,12 @@ sources: [docs/decisions/0002-vite-vanilla-ts-svg.md, docs/decisions/0003-lesson
 | Module | Owns | Must not |
 |---|---|---|
 | `src/engine/` | Step playback (play, pause, next, previous, seek, restart, speed, replay), timing, easing, reduced-motion handling, topic placement (`place.ts`), the event timeline (`timeline.ts`), record layout (`record.ts`), validation (`validate.ts`) | Know any topic |
-| `src/scene/` | Our own isometric illustrations (`iso.ts`, `icons.ts`), the network view with progressive reveal, critical/side links, tokens, and state badges (`networkView.ts`), the eased camera (`camera.ts`), region slabs and their footprint geometry (`regions.ts`), the sequence view (`sequenceView.ts`), and the `SceneDriver` interface (`driver.ts`) | Hold lesson text; draw node-state tables |
+| `src/scene/` | Our own isometric illustrations (`iso.ts`, `icons.ts`), the network view with progressive reveal, critical/side links, tokens, and state badges (`networkView.ts`), the eased camera (`camera.ts`), region slabs and their footprint geometry (`regions.ts`), the log/queue/tree state renderers (`stateViews.ts`), the sequence view (`sequenceView.ts`), and the `SceneDriver` interface (`driver.ts`) | Hold lesson text; draw `table` or `list` state on the scene, or more than one state inset at a time |
 | `src/ui/` | The app shell (top bar, topic drawer), step details, event log, decoder, overview sheet, player controls, theme, routing, progress, lesson registry | Touch SVG internals directly (it calls `mountLesson` from `engine`) |
 | `src/lessons/<topic>/` | One folder per topic: `meta.ts` (title, group, order, pinned versions, lesson ids, and the topic's map) and one `<lesson-id>.ts` per lesson | Import anything but `src/lessons/types.ts` — not even a sibling file |
 | `src/lessons/types.ts` | The lesson schema types | Depend on anything else |
 | `src/styles/` | Theme tokens, layout, scene classes, `@font-face` | Hold per-lesson styles |
-| `src/gallery.ts`, `gallery.html` | Dev-only icon gallery (`npm run dev`, then `/vStackExplorer/gallery.html`); not built | Ship in `dist/` |
+| `src/gallery.ts`, `gallery.html`, `src/fixture.ts`, `fixture.html` | Dev-only pages (`npm run dev`, then `/vStackExplorer/gallery.html` or `/vStackExplorer/fixture.html`): every icon and state renderer, and the state-view fixture lesson (`tests/fixtures/state-views.ts`) played in the real UI; not built | Ship in `dist/` |
 | `tests/` | Schema, import-rule, and playback tests | Test implementation details |
 
 ## Dependency direction
@@ -46,12 +46,17 @@ A topic folder holds `meta.ts` (`export const meta: TopicMeta`) and one file per
 - `id`, `topic`, `title`, `subtitle` (short name for the drawer and top bar), `summary`, `versions` (must equal `meta.versions`; lessons cannot import `meta.ts`).
 - `layers`: the lesson's layers (for example Servlet, Spring MVC, Application), shown in the layer selector and the event log.
 - `nodes`: the topic map's nodes this lesson uses. Each entry is an id, or `{ id, label?, sublabel?, kind?, icon? }` to relabel a node for its role in this lesson (for example Kafka's `log` as `users-0`). The position never changes per lesson. Each id must be in `meta.layout`, and each listed node must be used by a step.
-- `states`: a node's inner state (`table` with `columns` and `rows`, or `list` with `items`) with a `title` and the initial content. It is not drawn on the scene: the node shows a badge once a `mutate` step changes it, and the step details show the change.
+- `states`: a node's inner state with a `title` and the initial `view`. A node may have more than one view; then each has an `id` (for example a buffer pool's `lru` and `flush`). View types:
+  - `table` (`columns`, `rows`) and `list` (`items`): shown only in the step details, with changed rows highlighted.
+  - `log` (`entries`: `{ offset, label }` in ascending order; `markers`: `{ name, offset }`, such as HW, LEO, LSN, checkpoint). A marker may point past the last entry.
+  - `queue` (`items` from head to tail, unique; `marks`: `{ name, at }` where `at` is a boundary from 0 before the head to `items.length` after the tail, such as the LRU midpoint).
+  - `tree` (`levels`, root level first; each page `{ id, keys, children? }`, children in the next level), such as a B+Tree before and after a split.
+  - `log`, `queue`, and `tree` also show as a small inset next to the node while a `mutate` step changes them: the markers slide, items move, new entries and pages fade in. After the step the inset collapses to the badge; at most one shows at a time (decision 0015). The engine's `diffView` computes what changed per type.
 - `steps`: about 8 to 12, one mechanism (decision 0010). Each step has:
   - `id`, `layer`, `title`, `summary` (≤ 90 characters; the subtitle and the event log's info), `detail` (Korean, ≤ 320 characters, about 5 lines), `facts` (2 to 4 rows), optional `lines` (≤ 4 key lines for the message card), `sources` (≥ 1 `{ url, version, label }`, pinned to a release tag; decision 0004).
   - `path`: `critical` (the main path; drawn dominant and replayed) or `side` (a failure branch or detour; drawn weaker, shown only while used). The first step is critical.
   - `kind: 'move'` with `from`, `to`, and a `token` (`kind`: `request`, `response`, `call`, or `data`, and a short `label`). A move never changes state: it has no `node` or `after`.
-  - `kind: 'mutate'` with `node` and `after`. The node must have a `states` entry, and `after` is its **whole** view after the step: the same type, the same columns, every row. It must differ from the view before the step.
+  - `kind: 'mutate'` with `node`, optional `state`, and `after`. The node must have a `states` entry; when it has more than one view, `state` names the view's `id`. `after` is the view's **whole** content after the step: the same type, the same columns, every row or entry. It must differ from the view before the step.
   - `record` (optional): the message this step shows in the decoder. Records live only on steps; there is no lesson-level list. To show the same record on two steps, put it in a `const` in the lesson file. A step without a record cannot be decoded: its event-log row jumps to the step instead.
 - `overview`: lesson-level sections (`title`, `body`, `sources`) for the longer explanation behind the "개요" button.
 - `selfCheck`: questions with answers, answered without the page.

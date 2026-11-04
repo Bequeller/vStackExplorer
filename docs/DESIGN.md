@@ -23,7 +23,8 @@ Protocol Explorer (protocol-explorer-alpha.vercel.app, by Dilum Sanjaya), played
    - **Progressive reveal:** the scene starts with only the first actor. Each node appears, with a short draw-in, on the step where it first matters.
    - **Camera:** the view pans and zooms smoothly (eased viewBox transition) to frame the nodes the current step uses.
    - Links are dashed lines. A token travels along a link with its label (for example `GET /api/orders`). The token's color is its kind.
-   - Node-state views (tables, lists) are not printed on the scene. A node shows a small badge when its state changed; the state view opens in the step-details panel or the decoder.
+   - Node-state tables and lists are not printed on the scene. A node shows a small badge when its state changed; the state view opens in the step-details panel or the decoder.
+   - Structural state (a `log` with markers, a `queue` with a midpoint, a `tree` of pages) shows as a small inset next to the node only during its `mutate` step: the marker slides, the item moves to the head, the page splits. Then the inset collapses back to the badge. At most one inset shows at a time, the camera frames the node with its inset, and the replay shows the inset of each critical mutate. The step details draw the same view with the same renderer (decision 0015, owner choice).
 4. **Network/sequence toggle.** Above the scene, switch between the illustrated scene and a sequence diagram:
    - Each actor is a vertical lifeline with its name.
    - Each step is an arrow with its label, placed on a time axis with timestamps.
@@ -72,7 +73,7 @@ Defined once as CSS custom properties in `src/styles/app.css`, with light and da
 | Token `response` | `--token-response` (teal) | An outbound response |
 | Token `call` | `--token-call` (violet) | A method call inside the process |
 | Token `data` | `--token-data` (amber) | A value or payload handed between components |
-| State change | `--token-state` (yellow) | A `mutate` step: node badge, state card, log dot |
+| State change | `--token-state` (yellow) | A `mutate` step: node badge, state card, log dot, state inset border, and the moved marker, item, or new page inside it |
 | Decoder segments | `--seg-0` … `--seg-5` | Bands of a decoded message, in segment order |
 | Region slab | `--region` (neutral gray-blue) | Every region slab, with a lighter top at each depth. Never a kind color: a boundary is not an actor |
 
