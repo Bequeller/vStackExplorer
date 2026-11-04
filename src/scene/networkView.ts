@@ -1,9 +1,10 @@
 import type { StateView, Step, TopicNode } from '../lessons/types';
-import { Camera, lerp, type Box } from './camera';
+import { Camera, type Box } from './camera';
 import type { NodeStates, PlacedLesson, StepContext } from './driver';
 import { ICON_TOP, drawIcon } from './icons';
 import { COS30 } from './iso';
 import { RegionLayer, nodeLifts } from './regions';
+import { BURST_TOKENS, TokenLayer, hopsOf, laneKeys, type Flight } from './flights';
 import { drawStateView, isStructural } from './stateViews';
 import { setAttrs, svg, text } from './svg';
 
@@ -11,7 +12,8 @@ import { setAttrs, svg, text } from './svg';
 const ANCHOR_Z = 42;
 /** How far from a node's anchor a token starts and stops, so it never sits on the drawing. */
 const CLEAR = 52;
-const TOKEN_R = 8;
+/** How far a return lane sits beside its forward lane. */
+const LANE = 26;
 
 let sceneCount = 0;
 
@@ -53,11 +55,11 @@ export class NetworkView {
   private entering = new Set<string>();
   private replay = false;
   private readonly initial: NodeStates;
-  private readonly token: SVGGElement;
-  private readonly tokenDot: SVGCircleElement;
-  private readonly tokenPill: SVGRectElement;
-  private readonly tokenText: SVGTextElement;
-  private tokenWidth = 0;
+  private readonly tokens: TokenLayer;
+  /** Lane of a move: its link, or the link's offset return lane for the reverse direction. */
+  private readonly lane: (from: string, to: string) => { key: string; back: boolean };
+  /** Lane keys the current step's moves travel on. */
+  private current = new Set<string>();
 
   private index = 0;
   private step: Step | undefined;
@@ -92,17 +94,20 @@ export class NetworkView {
     const tokenLayer = svg('g', { class: 'token-layer' }, this.element);
     this.insetLayer = svg('g', { class: 'inset-layer' }, this.element);
 
+    this.lane = laneKeys(lesson.steps);
     lesson.steps.forEach((step, i) => {
       const critical = step.path === 'critical';
       if (step.kind === 'move') {
-        if (!this.firstUse.has(step.from)) this.firstUse.set(step.from, i === 0 ? -1 : i);
-        if (!this.firstUse.has(step.to)) this.firstUse.set(step.to, i);
-        const key = linkKey(step.from, step.to);
-        if (!this.linkFirstUse.has(key)) this.linkFirstUse.set(key, i);
-        if (critical) {
-          this.criticalLinks.add(key);
-          this.criticalNodes.add(step.from).add(step.to);
-        }
+        hopsOf(step).forEach((hop, h) => {
+          if (!this.firstUse.has(hop.from)) this.firstUse.set(hop.from, i === 0 && h === 0 ? -1 : i);
+          if (!this.firstUse.has(hop.to)) this.firstUse.set(hop.to, i);
+          const { key } = this.lane(hop.from, hop.to);
+          if (!this.linkFirstUse.has(key)) this.linkFirstUse.set(key, i);
+          if (critical) {
+            this.criticalLinks.add(key);
+            this.criticalNodes.add(hop.from).add(hop.to);
+          }
+        });
       } else {
         if (!this.firstUse.has(step.node)) this.firstUse.set(step.node, i);
         if (critical) this.criticalNodes.add(step.node);
@@ -113,7 +118,7 @@ export class NetworkView {
     this.regions = new RegionLayer(regionLayer, lesson.layout);
 
     const initial: Record<string, StateView> = {};
-    for (const s of lesson.states) initial[s.node] = s.view;
+    for (const s of lesson.states) initial[s.id ? `${s.node}/${s.id}` : s.node] = s.view;
     this.initial = initial;
 
     // Draw from back to front so nearer illustrations overlap farther ones.
@@ -121,18 +126,14 @@ export class NetworkView {
     for (const node of lesson.nodes) this.nodes.set(node.id, node);
     for (const node of ordered) this.drawNode(nodeLayer, node);
     for (const [key] of this.linkFirstUse) {
-      const [a, b] = key.split('|').map((k) => this.nodes.get(k));
-      if (!a || !b) continue;
-      const [ax, ay] = this.anchor(a);
-      const [bx, by] = this.anchor(b);
-      const cls = this.criticalLinks.has(key) ? 'link link--critical' : 'link link--side';
-      this.links.set(key, svg('line', { class: cls, x1: ax, y1: ay, x2: bx, y2: by, opacity: 0 }, linkLayer));
+      const [ids = '', back] = key.split('#');
+      const [a, b] = ids.split('|');
+      const line = a && b ? this.laneLine(a, b, back !== undefined) : null;
+      if (!line) continue;
+      const cls = `link ${this.criticalLinks.has(key) ? 'link--critical' : 'link--side'}${back ? ' link--return' : ''}`;
+      this.links.set(key, svg('line', { class: cls, x1: line[0][0], y1: line[0][1], x2: line[1][0], y2: line[1][1], opacity: 0 }, linkLayer));
     }
-
-    this.token = svg('g', { class: 'token', opacity: 0 }, tokenLayer);
-    this.tokenDot = svg('circle', { class: 'token-dot', r: TOKEN_R }, this.token);
-    this.tokenPill = svg('rect', { class: 'token-pill', rx: 6, height: 26 }, this.token);
-    this.tokenText = text('', { class: 'token-label', 'dominant-baseline': 'central' }, this.token);
+    this.tokens = new TokenLayer(tokenLayer);
 
     this.camera = new Camera(this.element, lesson.world);
     const first = lesson.steps[0];
@@ -186,25 +187,16 @@ export class NetworkView {
     // A slab appears with its first shown node; during the replay, the critical nodes' slabs.
     this.regions.show(visible);
 
-    const current = step.kind === 'move' ? linkKey(step.from, step.to) : '';
+    this.current = new Set(step.kind === 'move' ? hopsOf(step).map((hop) => this.lane(hop.from, hop.to).key) : []);
     for (const [key, line] of this.links) {
       const first = this.linkFirstUse.get(key) ?? Infinity;
       const critical = this.criticalLinks.has(key);
-      line.classList.toggle('is-active', key === current);
+      line.classList.toggle('is-active', this.current.has(key));
       const shown = context.replay ? critical : critical ? first < index : false;
       setAttrs(line, { opacity: shown ? 1 : 0 });
     }
 
-    if (step.kind === 'move') {
-      this.token.setAttribute('class', `token token--${step.token.kind} token--${step.path}`);
-      this.tokenText.textContent = step.token.label;
-      this.tokenWidth = textWidth(step.token.label, 14) + 18;
-      setAttrs(this.tokenPill, { width: this.tokenWidth });
-      this.placeToken(step, 0);
-      setAttrs(this.token, { opacity: 1 });
-    } else {
-      setAttrs(this.token, { opacity: 0 });
-    }
+    this.tokens.show(step.kind === 'move' ? this.flights(step) : []);
 
     // A structural view (log, queue, tree) shows as an inset while its node mutates, then
     // collapses back to the badge at the next step.
@@ -224,13 +216,12 @@ export class NetworkView {
       const appear = Math.min(1, t * 1.6);
       setAttrs(group, { opacity: appear, transform: `translate(${node.x} ${node.y - this.lift(nodeId) + (1 - appear) * 18})` });
     }
-    const current = step.kind === 'move' ? linkKey(step.from, step.to) : '';
     for (const [key, line] of this.links) {
       const firstHere = this.linkFirstUse.get(key) === this.index && this.criticalLinks.has(key);
-      const sideNow = key === current && !this.criticalLinks.has(key);
+      const sideNow = this.current.has(key) && !this.criticalLinks.has(key);
       if (!this.replay && (firstHere || sideNow)) setAttrs(line, { opacity: Math.min(1, t * 2) });
     }
-    if (step.kind === 'move') this.placeToken(step, t);
+    this.tokens.update(t);
     if (this.inset) this.drawInset(this.inset, t);
     this.camera.update(t);
   }
@@ -278,7 +269,46 @@ export class NetworkView {
   }
 
   private involved(step: Step): string[] {
-    return step.kind === 'move' ? [step.from, step.to] : [step.node];
+    return step.kind === 'move' ? [...new Set(hopsOf(step).flatMap((hop) => [hop.from, hop.to]))] : [step.node];
+  }
+
+  /** The tokens of a move step: one per hop, or a burst of up to 8 for a `count`, labeled ×N. */
+  private flights(step: Step & { kind: 'move' }): Flight[] {
+    return hopsOf(step).flatMap((hop, h) => {
+      const ends = this.endpoints(hop.from, hop.to);
+      if (!ends) return [];
+      const n = h === 0 && step.count ? Math.min(step.count, BURST_TOKENS) : 1;
+      const label = h === 0 && step.count ? `${hop.token.label} ×${step.count}` : hop.token.label;
+      return Array.from({ length: n }, (_, k) => ({ from: ends[0], to: ends[1], kind: hop.token.kind, path: step.path, label: k === 0 ? label : null, k, n }));
+    });
+  }
+
+  /** The line a lane is drawn on: between the two nodes' anchors, shifted aside for a return lane. */
+  private laneLine(a: string, b: string, back: boolean): [[number, number], [number, number]] | null {
+    const na = this.nodes.get(a);
+    const nb = this.nodes.get(b);
+    if (!na || !nb) return null;
+    const [ax, ay] = this.anchor(na);
+    const [bx, by] = this.anchor(nb);
+    if (!back) return [[ax, ay], [bx, by]];
+    const len = Math.hypot(bx - ax, by - ay) || 1;
+    const ox = (-(by - ay) / len) * LANE;
+    const oy = ((bx - ax) / len) * LANE;
+    return [[ax + ox, ay + oy], [bx + ox, by + oy]];
+  }
+
+  /** Where a token on this move starts and stops: on its lane, clear of both drawings. */
+  private endpoints(from: string, to: string): [[number, number], [number, number]] | null {
+    const { key, back } = this.lane(from, to);
+    const [a = '', b = ''] = (key.split('#')[0] ?? '').split('|');
+    const line = this.laneLine(a, b, back);
+    if (!line) return null;
+    const [p, q] = from === a ? line : [line[1], line[0]];
+    const len = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1;
+    const clear = Math.min(CLEAR, len / 3);
+    const ux = (q[0] - p[0]) / len;
+    const uy = (q[1] - p[1]) / len;
+    return [[p[0] + ux * clear, p[1] + uy * clear], [q[0] - ux * clear, q[1] - uy * clear]];
   }
 
   private drawNode(layer: SVGGElement, node: TopicNode): void {
@@ -301,29 +331,6 @@ export class NetworkView {
     this.groups.set(node.id, group);
   }
 
-  private placeToken(step: Step & { kind: 'move' }, t: number): void {
-    const a = this.nodes.get(step.from);
-    const b = this.nodes.get(step.to);
-    if (!a || !b) return;
-    const [ax, ay] = this.anchor(a);
-    const [bx, by] = this.anchor(b);
-    const len = Math.hypot(bx - ax, by - ay) || 1;
-    const clear = Math.min(CLEAR, len / 3);
-    const ux = (bx - ax) / len;
-    const uy = (by - ay) / len;
-    const sx = ax + ux * clear;
-    const sy = ay + uy * clear;
-    const ex = bx - ux * clear;
-    const ey = by - uy * clear;
-    const x = lerp(sx, ex, t);
-    const y = lerp(sy, ey, t);
-    setAttrs(this.tokenDot, { cx: x.toFixed(2), cy: y.toFixed(2) });
-    const left = x - this.tokenWidth / 2;
-    const top = y - TOKEN_R - 34;
-    setAttrs(this.tokenPill, { x: left.toFixed(2), y: top.toFixed(2) });
-    setAttrs(this.tokenText, { x: (left + 9).toFixed(2), y: (top + 13).toFixed(2) });
-  }
-
   /** The camera framing for these nodes: each node's illustration and label, standing on its slab. */
   private frameFor(nodeIds: string[]): Box {
     const areas: Box[] = [];
@@ -335,8 +342,4 @@ export class NetworkView {
     }
     return this.camera.frame(areas);
   }
-}
-
-function linkKey(a: string, b: string): string {
-  return a < b ? `${a}|${b}` : `${b}|${a}`;
 }

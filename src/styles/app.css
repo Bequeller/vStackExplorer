@@ -2010,3 +2010,13 @@ h3 {
   font: 12px var(--font-mono);
   color: var(--muted);
 }
+
+/* Concurrent and return flows (decision 0015, ENG-3). */
+.link--return {
+  stroke-dasharray: 2 7;
+}
+
+.token--trail .token-dot {
+  r: 6;
+  opacity: 0.75;
+}

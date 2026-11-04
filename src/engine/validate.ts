@@ -19,7 +19,7 @@ const NODE_KINDS: readonly NodeKind[] = ['client', 'container', 'framework', 'ap
 // is an error instead of being silently ignored.
 const LESSON_KEYS = ['id', 'topic', 'title', 'subtitle', 'summary', 'versions', 'layers', 'nodes', 'states', 'steps', 'overview', 'selfCheck'];
 const STEP_KEYS = ['id', 'layer', 'path', 'kind', 'title', 'summary', 'detail', 'facts', 'lines', 'record', 'sources'];
-const MOVE_KEYS = [...STEP_KEYS, 'from', 'to', 'token'];
+const MOVE_KEYS = [...STEP_KEYS, 'from', 'to', 'token', 'parallel', 'count'];
 const MUTATE_KEYS = [...STEP_KEYS, 'node', 'state', 'after'];
 const RECORD_KEYS = ['title', 'protocol', 'segments', 'fields', 'wire', 'format'];
 const FIELD_KEYS = ['name', 'value', 'note', 'segment', 'span', 'offset', 'length', 'example'];
@@ -209,12 +209,16 @@ export function validateLesson(lesson: Lesson, meta: TopicMeta): string[] {
 
     if (step.kind === 'move') {
       unknownKeys(step, MOVE_KEYS, (k) => at(where, `"${k}" is not a move field; a move never changes state (use a mutate step)`));
-      for (const end of [step.from, step.to]) {
-        if (!nodeIds.has(end)) at(where, `"${end}" is not a node the lesson lists`);
-        used.add(end);
+      for (const [h, hop] of [step, ...(step.parallel ?? [])].entries()) {
+        const what = h === 0 ? 'the move' : `parallel move ${h}`;
+        for (const end of [hop.from, hop.to]) {
+          if (!nodeIds.has(end)) at(where, `${what}: "${end}" is not a node the lesson lists`);
+          used.add(end);
+        }
+        if (hop.from === hop.to) at(where, `${what} needs two different nodes; use mutate for a change inside one node`);
+        if (!nonEmpty(hop.token?.label)) at(where, `${what} needs a token with a label`);
       }
-      if (step.from === step.to) at(where, 'a move needs two different nodes; use mutate for a change inside one node');
-      if (!nonEmpty(step.token?.label)) at(where, 'token label is empty');
+      if (step.count !== undefined && (!Number.isInteger(step.count) || step.count < 2)) at(where, 'count must be an integer ≥ 2 (a burst of requests)');
     } else if (step.kind === 'mutate') {
       unknownKeys(step, MUTATE_KEYS, (k) => at(where, `"${k}" is not a mutate field`));
       used.add(step.node);

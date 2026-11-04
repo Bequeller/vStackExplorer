@@ -326,6 +326,13 @@ export interface MoveStep extends StepBase {
   from: string;
   to: string;
   token: Token;
+  /**
+   * More moves that play during the same step and finish together: two flows racing, such as
+   * the kubelet TERM path and the load balancer deregistration (decision 0015).
+   */
+  parallel?: { from: string; to: string; token: Token }[];
+  /** Draw this move as a burst of N requests (a cache stampede), labeled ×N. At least 2. */
+  count?: number;
 }
 
 /**

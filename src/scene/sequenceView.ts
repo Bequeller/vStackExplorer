@@ -1,5 +1,6 @@
 import type { Step } from '../lessons/types';
 import type { PlacedLesson, StepContext } from './driver';
+import { hopsOf } from './flights';
 import { setAttrs, svg, text } from './svg';
 
 const AXIS = 92;
@@ -9,12 +10,20 @@ const ROW = 42;
 /** Height of the region band above the lifeline headers, when the map has regions. */
 const BAND = 24;
 
-interface Row {
-  group: SVGGElement;
-  line: SVGLineElement | null;
-  head: SVGPolygonElement | null;
+interface Arrow {
+  line: SVGLineElement;
+  head: SVGPolygonElement;
   x1: number;
   x2: number;
+  y: number;
+}
+
+interface Row {
+  group: SVGGElement;
+  /** One arrow per hop; parallel moves share the row (the same time position). */
+  arrows: Arrow[];
+  /** x of every lifeline this row touches, to keep in view. */
+  xs: number[];
 }
 
 /**
@@ -81,18 +90,22 @@ export class SequenceView {
       const group = svg('g', { class: `seq-row seq-row--${step.kind === 'move' ? step.token.kind : 'state'} seq-row--${step.path}`, opacity: 0 }, root);
       text(times[i] ?? '', { class: 'seq-time', x: 12, y: y + 4 }, group);
       if (step.kind === 'move') {
-        const x1 = colX(step.from);
-        const x2 = colX(step.to);
-        const dir = Math.sign(x2 - x1) || 1;
-        const line = svg('line', { class: 'seq-arrow', x1, y1: y, x2: x1, y2: y }, group);
-        const head = svg('polygon', { class: 'seq-arrowhead', points: arrowHead(x1, y, dir) }, group);
-        text(step.token.label, { class: 'seq-label', x: (x1 + x2) / 2, y: y - 7, 'text-anchor': 'middle' }, group);
-        this.rows.push({ group, line, head, x1, x2 });
+        const arrows = hopsOf(step).map((hop, h) => {
+          const x1 = colX(hop.from);
+          const x2 = colX(hop.to);
+          const ay = y + h * 9;
+          const line = svg('line', { class: 'seq-arrow', x1, y1: ay, x2: x1, y2: ay }, group);
+          const head = svg('polygon', { class: 'seq-arrowhead', points: arrowHead(x1, ay, Math.sign(x2 - x1) || 1) }, group);
+          const label = h === 0 && step.count ? `${hop.token.label} ×${step.count}` : hop.token.label;
+          text(label, { class: 'seq-label', x: (x1 + x2) / 2, y: ay - 7, 'text-anchor': 'middle' }, group);
+          return { line, head, x1, x2, y: ay };
+        });
+        this.rows.push({ group, arrows, xs: arrows.flatMap((a) => [a.x1, a.x2]) });
       } else {
         const x = colX(step.node);
         svg('rect', { class: 'seq-state', x: x - 9, y: y - 12, width: 18, height: 24, rx: 4 }, group);
         text(step.title, { class: 'seq-label seq-label--state', x: x + 16, y: y + 4 }, group);
-        this.rows.push({ group, line: null, head: null, x1: x, x2: x });
+        this.rows.push({ group, arrows: [], xs: [x] });
       }
     });
   }
@@ -102,7 +115,7 @@ export class SequenceView {
     this.rows.forEach((row, i) => {
       row.group.classList.toggle('is-current', i === index);
       setAttrs(row.group, { opacity: i < index ? 1 : i === index ? 1 : 0 });
-      if (row.line) this.drawArrow(row, i < index ? 1 : 0);
+      for (const arrow of row.arrows) drawArrow(arrow, i < index ? 1 : 0);
     });
     setAttrs(this.marker, { y: HEAD + index * ROW });
     this.keepInView(index);
@@ -114,16 +127,7 @@ export class SequenceView {
   }
 
   update(_step: Step, t: number): void {
-    const row = this.rows[this.index];
-    if (row?.line) this.drawArrow(row, t);
-  }
-
-  private drawArrow(row: Row, t: number): void {
-    if (!row.line || !row.head) return;
-    const x = row.x1 + (row.x2 - row.x1) * t;
-    const y = Number(row.line.getAttribute('y1'));
-    setAttrs(row.line, { x2: x.toFixed(1) });
-    setAttrs(row.head, { points: arrowHead(x, y, Math.sign(row.x2 - row.x1) || 1), opacity: t > 0.05 ? 1 : 0 });
+    for (const arrow of this.rows[this.index]?.arrows ?? []) drawArrow(arrow, t);
   }
 
   /** Scrolls only this view (never the page) so the current row and its columns are visible. */
@@ -132,8 +136,8 @@ export class SequenceView {
     const scale = this.svgEl.getBoundingClientRect().height / Number(this.svgEl.viewBox.baseVal.height || 1);
     const row = this.rows[index];
     if (row && el.scrollWidth > el.clientWidth && scale > 0) {
-      const left = (Math.min(row.x1, row.x2) - COL / 2) * scale;
-      const right = (Math.max(row.x1, row.x2) + COL * 1.5) * scale;
+      const left = (Math.min(...row.xs) - COL / 2) * scale;
+      const right = (Math.max(...row.xs) + COL * 1.5) * scale;
       if (left < el.scrollLeft || right > el.scrollLeft + el.clientWidth) {
         el.scrollLeft = Math.max(0, Math.min(left - AXIS * scale, right - el.clientWidth));
       }
@@ -192,6 +196,12 @@ function regionBands(lesson: PlacedLesson, order: string[]): Band[] {
   }
   if (current) bands.push(current);
   return bands;
+}
+
+function drawArrow(arrow: Arrow, t: number): void {
+  const x = arrow.x1 + (arrow.x2 - arrow.x1) * t;
+  setAttrs(arrow.line, { x2: x.toFixed(1) });
+  setAttrs(arrow.head, { points: arrowHead(x, arrow.y, Math.sign(arrow.x2 - arrow.x1) || 1), opacity: t > 0.05 ? 1 : 0 });
 }
 
 function arrowHead(x: number, y: number, dir: number): string {

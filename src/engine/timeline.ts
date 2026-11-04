@@ -39,7 +39,7 @@ export function buildTimeline(
       source: label(step.kind === 'move' ? step.from : step.node),
       destination: label(step.kind === 'move' ? step.to : step.node),
       layer: layer(step.layer),
-      info: step.kind === 'move' ? `${step.token.label} — ${step.summary}` : step.summary,
+      info: step.kind === 'move' ? `${moveLabels(step)} — ${step.summary}` : step.summary,
       kind: step.kind === 'move' ? step.token.kind : 'state',
       bytes: step.record ? recordBytes(step.record) : null,
       protocol: step.record?.protocol ?? layer(step.layer),
@@ -53,6 +53,12 @@ export function buildTimeline(
 
 function stepDuration(step: Step, timings: PlayerTimings): number {
   return step.kind === 'move' ? timings.move : timings.mutate;
+}
+
+/** A move's token labels: the burst count as ×N, parallel moves joined by "‖". */
+function moveLabels(step: Step & { kind: 'move' }): string {
+  const main = step.count ? `${step.token.label} ×${step.count}` : step.token.label;
+  return [main, ...(step.parallel ?? []).map((p) => p.token.label)].join(' ‖ ');
 }
 
 /** "12.4 s" style label for a playback time in ms. */
