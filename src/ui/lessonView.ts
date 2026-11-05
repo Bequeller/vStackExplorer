@@ -149,6 +149,7 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
     prevBtn.disabled = index === 0;
     stepBtn.disabled = index === total - 1;
     speedBtn.textContent = `${state.speed}×`;
+    speedBtn.setAttribute('aria-label', `재생 속도 ${state.speed}배 (누르면 바뀜)`);
     replayBtn.setAttribute('aria-pressed', String(state.replaying));
     replayBadge.hidden = !state.replaying;
     slots.workspace.classList.toggle('is-replaying', state.replaying);

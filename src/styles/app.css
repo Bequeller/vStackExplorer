@@ -1969,10 +1969,6 @@ h3 {
     height: 100%;
     overflow: hidden;
   }
-
-  .menu-btn {
-    display: none;
-  }
 }
 
 /* Wide: the topic list is a permanent left column. */
@@ -1995,7 +1991,8 @@ h3 {
   }
 
   .drawer-scrim,
-  .drawer-close {
+  .drawer-close,
+  .menu-btn {
     display: none;
   }
 
@@ -2116,8 +2113,11 @@ h3 {
     max-height: 340px;
   }
 
+  /* The legend wraps to its own line under the title, like the reference. */
   .legend--events {
-    display: none;
+    display: flex;
+    order: 3;
+    flex-basis: 100%;
   }
 
   .log-count {
