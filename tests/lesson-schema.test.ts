@@ -13,9 +13,10 @@ const lessons = Object.entries(lessonModules).map(([path, lesson]) => {
   return { path, folder, file, lesson, meta: metaModules[`../src/lessons/${folder}/meta.ts`] };
 });
 
-const fixture = lessons[0]!;
+// The rule tests below break parts of the Spring lesson (tomcat node, text record), so pin it.
+const fixture = lessons.find((l) => l.folder === 'spring-boot' && l.file === 'request-flow')!;
 const meta = fixture.meta!;
-/** A fresh copy of the first shipped lesson, to break one rule at a time. */
+/** A fresh copy of the Spring request-flow lesson, to break one rule at a time. */
 const copy = (): Lesson => structuredClone(fixture.lesson);
 const errorsFor = (lesson: Lesson): string[] => validateLesson(lesson, meta);
 const has = (errors: string[], text: string): boolean => errors.some((e) => e.includes(text));
