@@ -56,8 +56,28 @@ export function validateTopic(meta: TopicMeta): string[] {
       placeable = false;
     }
   }
-  if (placeable) checkRegions(projectLayout(layout), ids, (where, m) => at(where, m));
+  if (!placeable) return errors;
+  const placed = projectLayout(layout);
+  checkSpacing(placed, (where, m) => at(where, m));
+  checkRegions(placed, ids, (where, m) => at(where, m));
   return errors;
+}
+
+/** Room an illustration and its label need on screen, in scene units (docs/ARCHITECTURE.md, Grid). */
+const NODE_ROOM = { w: 220, h: 240 };
+
+/** Two nodes closer than an illustration's room draw over each other's icon and label. */
+function checkSpacing(layout: PlacedLayout, at: (where: string, message: string) => void): void {
+  const nodes = layout.nodes;
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i]!;
+      const b = nodes[j]!;
+      if (Math.abs(a.x - b.x) < NODE_ROOM.w - 0.5 && Math.abs(a.y - b.y) < NODE_ROOM.h - 0.5) {
+        at(`layout node ${b.id}`, `is too close to "${a.id}" and draws over it; move one a whole cell away`);
+      }
+    }
+  }
 }
 
 /** Region rules (decision 0015): a tree of slabs whose computed footprints do not collide. */

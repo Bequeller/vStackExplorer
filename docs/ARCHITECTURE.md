@@ -35,7 +35,7 @@ A topic folder holds `meta.ts` (`export const meta: TopicMeta`) and one file per
   - `kind` picks the color: `client`, `container`, `framework`, `app`, `storage`, `cloud` (docs/DESIGN.md, Color meaning).
   - `icon` picks the illustration: one of the `IconKind`s in docs/DESIGN.md (Icons).
   - Place the critical path so it reads in one direction (outside → inside, caller → callee, memory above disk). Leave room for later lessons: a node may be on the map before any lesson uses it.
-  - Grid: one cell is 300 ground units. `gx` runs to the lower right on screen, `gy` to the lower left. Neighboring cells leave room for an illustration and its label. Use whole cells; a fraction is allowed when a node must sit between two others. The Spring map runs the request along `gx` (client at (0, 0), database at (8, 0)), with the lookup at `gy` −1 and the conversions at `gy` +1.
+  - Grid: one cell is 300 ground units. `gx` runs to the lower right on screen, `gy` to the lower left. An illustration with its label needs about 220 units across and 240 down on screen; neighboring cells leave that room, and `validateTopic` rejects two nodes closer than that. Use whole cells; a fraction is allowed when a node must sit between two others. The Spring map runs the request along `gx` (client at (0, 0), database at (8, 0)), with the lookup at `gy` −1 and the conversions at `gy` +1.
   - The engine projects cells to screen points and sizes the world from the nodes (`projectLayout`). Plans in `docs/research/` that give positions on a 1000 × 640 screen grid only show the arrangement: re-lay them out in cells.
 - `layout.regions` (optional, decision 0015): boundaries such as a process, a machine, or a VPC, drawn as stacked isometric slabs. Each is `{ id, label, nodes, parent?, managed? }`. `nodes` lists the node ids directly inside it, `parent` nests it in another region, and `managed: true` marks a part the team does not run (drawn dashed).
   - The engine computes each slab's footprint: the ground bounding box of its members and child slabs, plus a 120-unit margin. Each nesting level stacks one slab (12 units) higher, and each node stands on its innermost slab. A slab appears with its first shown node.
@@ -88,6 +88,7 @@ The event log's time column is the playback timeline at 1× (step animation plus
    - `npm run check` (types and lint)
    - `npm test` (schema, import rules, playback). The schema test prints every rule a lesson breaks.
    - `npm run build`
+   - `npm run smoke` (after the build): plays every step of every lesson in Google Chrome at desktop and phone size, and fails on a console error or on an active node or state inset outside the scene (decision 0017). It does not judge how a step looks.
    - `scripts/check-docs.sh .`
 6. Open the lesson in a browser (`npm run dev`, or `npm run build && npm run preview`) and play it through, including the replay, in both themes and at phone width. Check the console stays clean.
 7. Commit only inside `src/lessons/<topic>/` (and `docs/` for that topic's notes).
@@ -107,5 +108,5 @@ URL hash (`#/<topic>/<lesson>[/<step>]`; `#/` opens the first lesson with the dr
 
 - Vite builds to `dist/` with `base: '/vStackExplorer/'`.
 - Hash routing, so GitHub Pages needs no server rewrites.
-- `.github/workflows/deploy.yml` runs `npm ci`, `check`, `test`, `build`, and `scripts/check-docs.sh` on push to `main`, then deploys `dist/` with `actions/upload-pages-artifact@v5` and `actions/deploy-pages@v5`. Pages source is set to GitHub Actions.
+- `.github/workflows/deploy.yml` runs `npm ci`, `check`, `test`, `build`, `smoke`, and `scripts/check-docs.sh` on push to `main`, then deploys `dist/` with `actions/upload-pages-artifact@v5` and `actions/deploy-pages@v5`. Pages source is set to GitHub Actions.
 - Fonts are served from `public/fonts/` (see `public/fonts/iosevka/README.md` and decision 0006).

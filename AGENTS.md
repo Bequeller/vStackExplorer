@@ -11,6 +11,7 @@ Interactive, animated study material for backend internals (Spring Boot, MySQL I
 | Type check and lint | `npm run check` |
 | Run | `npm run dev` |
 | Build | `npm run build` |
+| Play every step in Chrome (after build) | `npm run smoke` |
 | Docs check | `scripts/check-docs.sh .` |
 
 Keep these script names; CI and other sessions rely on them.

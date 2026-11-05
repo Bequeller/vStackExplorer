@@ -13,7 +13,7 @@ function mapWith(regions: Region[]): TopicMeta {
     layout: {
       nodes: [
         { id: 'a', label: 'A', kind: 'app', icon: 'service', gx: 0, gy: 0 },
-        { id: 'b', label: 'B', kind: 'app', icon: 'service', gx: 0.5, gy: 0 },
+        { id: 'b', label: 'B', kind: 'app', icon: 'service', gx: 2 / 3, gy: -1 / 3 },
         { id: 'c', label: 'C', kind: 'storage', icon: 'database', gx: 4, gy: 0 },
         { id: 'd', label: 'D', kind: 'client', icon: 'laptop', gx: -3, gy: 0 },
       ],
@@ -45,6 +45,13 @@ describe('regions', () => {
     const loose = mapWith([]);
     loose.layout.nodes[0] = { ...loose.layout.nodes[0]!, gx: Number.NaN };
     expect(has(loose, 'finite gx and gy')).toBe(true);
+  });
+
+  it('rejects two nodes that would draw over each other, and accepts neighboring cells', () => {
+    expect(has(mapWith([]), 'too close')).toBe(false);
+    const crowded = mapWith([]);
+    crowded.layout.nodes[1] = { ...crowded.layout.nodes[1]!, gx: 0.5, gy: 0 };
+    expect(has(crowded, 'is too close to "a"')).toBe(true);
   });
 
   it('computes footprints from members, nests children, and lifts each node onto its innermost slab', () => {
