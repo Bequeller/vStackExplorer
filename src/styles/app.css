@@ -1046,6 +1046,16 @@ h3 {
   overflow: hidden;
 }
 
+.details .panel-title {
+  font-size: 20px;
+}
+
+.details .panel-head .chip-btn {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
 .details-body {
   display: flex;
   flex-direction: column;
@@ -1316,7 +1326,9 @@ h3 {
 
 .log {
   width: 100%;
-  border-collapse: collapse;
+  /* Separate borders stay attached to the sticky header cells while rows scroll under them. */
+  border-collapse: separate;
+  border-spacing: 0;
   font: 13px/1.35 var(--font-mono);
 }
 
@@ -1977,6 +1989,7 @@ h3 {
   .drawer-root[hidden] {
     grid-area: topics;
     position: static;
+    z-index: auto;
     display: block !important;
     min-height: 0;
   }

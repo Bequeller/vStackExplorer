@@ -70,16 +70,16 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
   const scenePanel = h('section', { class: 'panel scene-panel', 'aria-label': '장면' },
     h('div', { class: 'scene-toolbar' },
       h('div', { class: 'view-toggle', role: 'group', 'aria-label': '보기' }, viewNetwork, viewSequence),
-      h('div', { class: 'scene-tools' }, replayBadge, overviewBtn),
+      replayBadge,
     ),
     sceneHost,
     legendHost,
   );
 
-  // Step details: a titled panel whose body scrolls.
+  // Step details: a titled panel whose body scrolls. The lesson overview opens from its header.
   const detailsBody = h('div', { class: 'details-body', 'aria-live': 'polite' });
   const details = h('aside', { class: 'panel details', 'aria-label': '단계 설명' },
-    h('div', { class: 'panel-head' }, h('h2', { class: 'panel-title' }, 'Step details')),
+    h('div', { class: 'panel-head' }, h('h2', { class: 'panel-title' }, 'Step details'), overviewBtn),
     detailsBody,
   );
 
@@ -324,11 +324,12 @@ function renderDetails(root: HTMLElement, lesson: PlacedLesson, step: Step, inde
         h('li', {}, h('a', { href: s.url, target: '_blank', rel: 'noopener noreferrer' }, s.label), h('span', { class: 'source-version' }, s.version)),
       )),
     ),
-    h('div', { class: 'details-actions' },
-      h('button', { type: 'button', class: 'chip-btn', 'data-action': 'overview' }, glyph('book'), '개요'),
-      isLast ? h('button', { type: 'button', class: 'chip-btn chip-btn--accent', 'data-action': 'replay' }, glyph('replay'), '핵심 경로 리플레이') : null,
-      isLast ? h('button', { type: 'button', class: 'chip-btn chip-btn--accent', 'data-action': 'selfcheck' }, `셀프 체크 ${lesson.selfCheck.length}문항 →`) : null,
-    ),
+    isLast
+      ? h('div', { class: 'details-actions' },
+          h('button', { type: 'button', class: 'chip-btn chip-btn--accent', 'data-action': 'replay' }, glyph('replay'), '핵심 경로 리플레이'),
+          h('button', { type: 'button', class: 'chip-btn chip-btn--accent', 'data-action': 'selfcheck' }, `셀프 체크 ${lesson.selfCheck.length}문항 →`),
+        )
+      : null,
   );
   root.scrollTop = 0;
 }
