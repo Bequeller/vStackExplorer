@@ -58,7 +58,8 @@ The four bands run top to bottom: SQL layer → InnoDB memory → background thr
 | SQL (70) | `trx` | 590 | Transaction / `trx_t` · ReadView | framework | Folder with a trx-id tab and a camera | trx state + read view (table) |
 | SQL (70) | `locks` | 760 | Lock system / `lock_sys` | framework | Cabinet of padlocks on hooks | lock table (table) |
 | SQL (70) | `bgc` | 930 | Binlog group commit / flush · sync · commit | framework | Three-lane conveyor with a leader flag | stage queues (list) |
-| Memory (300) | `index` | 250 | B+Tree pages / PRIMARY · secondary | storage | Small tree of page slabs (root → leaves) | records (table) |
+| Memory (300) | `idx_k` | 250 | idx_k / secondary · (k, id) | storage | Small tree of page slabs (root → leaves) | B+Tree (tree) |
+| Memory (300) | `primary` | 335 | PRIMARY / clustered · full row | storage | Small tree of page slabs (root → leaves) | B+Tree (tree) + clustered key (table) |
 | Memory (300) | `bpool` | 420 | Buffer pool / LRU · flush list | framework | Rack of page frames on a two-color belt | LRU + flush list (list) |
 | Memory (300) | `undo` | 590 | Undo log / version chain | storage | Stack of old row cards linked by a chain | versions (list) |
 | Memory (300) | `logbuf` | 760 | Log buffer / LSN | framework | Ring tape with an LSN ruler | LSN markers (table) |
@@ -96,14 +97,14 @@ The lessons follow the order in `docs/PRODUCT.md` (Scope).
 ## Lesson 1 — `index-lookup`
 
 **Goal:** Follow a secondary-index lookup into the clustered index, and see when a covering index skips the second lookup.
-**Critical path:** `client → sql → index (idx_k leaf) → index (PRIMARY leaf) → client`
+**Critical path:** `client → sql → idx_k (leaf) → primary (leaf) → client`
 **Interview questions:**
 - What do a clustered leaf and a secondary leaf each hold?
 - Why can a secondary lookup cost two descents?
 - What is a covering index?
 - What happens to a table with no primary key?
 
-**Nodes:** `client`, `sql`, `index`. **Layers:** SQL, B+Tree.
+**Nodes:** `client`, `sql`, `idx_k`, `primary`. **Layers:** SQL, B+Tree.
 **Overview line (not a step):** a page is searched by binary search over its page directory, then a short linear walk.
 
 ##### 1.1 `move` — 쿼리 도착

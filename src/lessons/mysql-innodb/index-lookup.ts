@@ -1,4 +1,4 @@
-import type { Lesson, Source } from '../types';
+import type { Lesson, Source, TreeView } from '../types';
 
 // Every URL is pinned to the release tag, so line anchors stay valid (docs/decisions/0004).
 const V = 'MySQL 8.4.13';
@@ -27,13 +27,44 @@ const s = {
 } satisfies Record<string, Source>;
 
 const PLAN: { type: 'table'; columns: string[] } = { type: 'table', columns: ['항목', '값'] };
-const LEAF: { type: 'table'; columns: string[] } = { type: 'table', columns: ['record', 'cursor'] };
 
 // D1.1. Offsets in the plan are from the record origin; the 5-byte header sits at −5…−1.
 const CLUSTERED_HEX =
   '00 00 18 00 1E 80 00 00 14 00 00 00 00 0F 11 85 00 00 01 23 01 10 80 00 00 C8 80 00 00 02';
 // D1.2. Same header placement. 5 + 4 + 4 = 13 bytes.
 const SECONDARY_HEX = '00 00 18 00 0D 80 00 00 C8 80 00 00 14';
+
+// A two-level toy tree per index: real leaves hold hundreds of records in one 16 KB page.
+// "▸" marks the node pointer and record the cursor takes, so the changed pages are the descent path.
+// Secondary keys read "k→id": the leaf record carries the PK.
+const IDX_K: TreeView = {
+  type: 'tree',
+  levels: [
+    [{ id: 'k-root', keys: ['100', '300'], children: ['k-leaf1', 'k-leaf2'] }],
+    [{ id: 'k-leaf1', keys: ['100→10', '200→20'] }, { id: 'k-leaf2', keys: ['300→30'] }],
+  ],
+};
+const IDX_K_FOUND: TreeView = {
+  type: 'tree',
+  levels: [
+    [{ id: 'k-root', keys: ['▸100', '300'], children: ['k-leaf1', 'k-leaf2'] }],
+    [{ id: 'k-leaf1', keys: ['100→10', '▸200→20'] }, { id: 'k-leaf2', keys: ['300→30'] }],
+  ],
+};
+const PRIMARY: TreeView = {
+  type: 'tree',
+  levels: [
+    [{ id: 'p-root', keys: ['10', '30'], children: ['p-leaf1', 'p-leaf2'] }],
+    [{ id: 'p-leaf1', keys: ['10 row', '20 row'] }, { id: 'p-leaf2', keys: ['30 row'] }],
+  ],
+};
+const PRIMARY_FOUND: TreeView = {
+  type: 'tree',
+  levels: [
+    [{ id: 'p-root', keys: ['▸10', '30'], children: ['p-leaf1', 'p-leaf2'] }],
+    [{ id: 'p-leaf1', keys: ['10 row', '▸20 v=2'] }, { id: 'p-leaf2', keys: ['30 row'] }],
+  ],
+};
 
 export const lesson: Lesson = {
   id: 'index-lookup',
@@ -47,41 +78,12 @@ export const lesson: Lesson = {
     { id: 'sql', label: 'SQL' },
     { id: 'btree', label: 'B+Tree' },
   ],
-  nodes: ['client', 'sql', 'index'],
+  nodes: ['client', 'sql', 'idx_k', 'primary'],
   states: [
     { node: 'sql', title: 'plan', view: { ...PLAN, rows: [] } },
-    {
-      node: 'index',
-      id: 'idx_k',
-      title: 'idx_k leaf',
-      view: {
-        ...LEAF,
-        rows: [
-          ['(100, 10)', '—'],
-          ['(200, 20)', '—'],
-          ['(300, 30)', '—'],
-        ],
-      },
-    },
-    {
-      node: 'index',
-      id: 'primary',
-      title: 'PRIMARY leaf',
-      view: {
-        ...LEAF,
-        rows: [
-          ['10', '—'],
-          ['20', '—'],
-          ['30', '—'],
-        ],
-      },
-    },
-    {
-      node: 'index',
-      id: 'key',
-      title: 'clustered key',
-      view: { ...PLAN, rows: [['PRIMARY key', 'id']] },
-    },
+    { node: 'idx_k', title: 'idx_k B+Tree', view: IDX_K },
+    { node: 'primary', id: 'tree', title: 'PRIMARY B+Tree', view: PRIMARY },
+    { node: 'primary', id: 'key', title: 'clustered key', view: { ...PLAN, rows: [['clustered key', 'PK `id`']] } },
   ],
   steps: [
     {
@@ -95,10 +97,10 @@ export const lesson: Lesson = {
       title: '쿼리 도착',
       summary: '`SELECT v FROM t WHERE k = 200`',
       detail:
-        'InnoDB 테이블은 PK로 정렬된 B+Tree(clustered index)이고, secondary index도 각각 B+Tree다. page 하나는 16KB다.',
+        'InnoDB 테이블은 PK로 정렬된 B+Tree(clustered index)다. secondary index도 각각 별도의 B+Tree다. 그래서 지도에 `idx_k`와 `PRIMARY`가 따로 있다.',
       facts: [
-        { key: '`innodb_page_size` default', value: '16384' },
         { key: 'index 구성', value: 'clustered(PK) 1개 + secondary N개, 각각 B+Tree' },
+        { key: '`innodb_page_size` default', value: '16384' },
       ],
       lines: ['SELECT v FROM t WHERE k=200'],
       sources: [s.pageSizeConst, s.innodbPageSize, s.clustSysCols, s.secondaryPk],
@@ -128,48 +130,40 @@ export const lesson: Lesson = {
       sources: [s.needClustered, s.needClusteredRead, s.secondaryPk],
     },
     {
-      id: 'descend-idx-k',
+      id: 'to-idx-k',
       layer: 'btree',
       path: 'critical',
       kind: 'move',
       from: 'sql',
-      to: 'index',
-      token: { kind: 'call', label: 'descend idx_k (k=200)' },
-      title: 'secondary B+Tree 하강',
-      summary: 'root → leaf로 `k = 200`을 찾는다.',
+      to: 'idx_k',
+      token: { kind: 'call', label: 'search idx_k: k=200' },
+      title: '첫 번째 B+Tree: `idx_k`',
+      summary: '`k = 200`으로 secondary index를 root부터 찾는다.',
       detail:
-        '비-leaf page의 node pointer는 "자식의 최소 key + 자식 page 번호"다. root에서 leaf까지 page 하나씩 내려간다.',
+        '모든 조회는 root page에서 시작한다. 비-leaf page의 node pointer는 "자식의 최소 key + 자식 page 번호"다.',
       facts: [
-        { key: 'leaf level', value: '`PAGE_LEVEL = 0`; tree height = root level + 1' },
         { key: 'node pointer', value: '자식의 최소 key + 자식 page 번호' },
+        { key: 'leaf level', value: '`PAGE_LEVEL = 0`; tree height = root level + 1' },
       ],
-      lines: ['descend idx_k (k=200)', '16384 B / page'],
+      lines: ['search idx_k (k=200)'],
       sources: [s.descent, s.pageHeader],
     },
     {
-      id: 'match-secondary',
+      id: 'descend-idx-k',
       layer: 'btree',
       path: 'critical',
       kind: 'mutate',
-      node: 'index',
-      state: 'idx_k',
-      after: {
-        ...LEAF,
-        rows: [
-          ['(100, 10)', '—'],
-          ['(200, 20)', 'on (200, 20)'],
-          ['(300, 30)', '—'],
-        ],
-      },
-      title: 'secondary leaf 일치: `(k=200, id=20)`',
-      summary: 'secondary leaf에는 key와 PK만 있다.',
+      node: 'idx_k',
+      after: IDX_K_FOUND,
+      title: '`idx_k` 하강: `(k=200, id=20)`',
+      summary: 'root에서 `100` pointer를 따라 leaf로 내려가 `200→20`을 찾는다.',
       detail:
-        'secondary record가 주는 것은 PK뿐이다. `v`를 읽으려면 그 PK로 clustered index를 다시 찾아야 한다.',
+        'page 안에서는 page directory를 binary search한 뒤 짧게 linear walk한다. secondary leaf record가 주는 것은 key와 PK뿐이다. `v`를 읽으려면 PK `20`으로 `PRIMARY`를 다시 찾아야 한다.',
       facts: [
         { key: 'secondary leaf record', value: '`k`, `id` (no `DB_TRX_ID` / `DB_ROLL_PTR`)' },
         { key: 'record size', value: '13 B (header 5 + `k` 4 + `id` 4)' },
       ],
-      lines: ['match (200, 20)'],
+      lines: ['root → leaf', 'match (200, 20)'],
       record: {
         title: 'Secondary leaf record `(k=200, id=20)`',
         protocol: 'InnoDB compact record',
@@ -188,58 +182,44 @@ export const lesson: Lesson = {
           { name: 'id', value: '20', note: 'secondary leaf가 들고 있는 PK', segment: 'pk', offset: 9, length: 4 },
         ],
       },
-      sources: [s.secondaryPk, s.clustSysCols, s.recHeader, s.intOrder],
+      sources: [s.descent, s.pageSearch, s.secondaryPk, s.recHeader, s.intOrder],
+    },
+    {
+      id: 'pk-hop',
+      layer: 'btree',
+      path: 'critical',
+      kind: 'move',
+      from: 'idx_k',
+      to: 'primary',
+      token: { kind: 'data', label: 'PK id=20' },
+      title: 'PK를 들고 `PRIMARY`로',
+      summary: 'secondary record의 PK `id = 20`으로 clustered index를 찾는다.',
+      detail:
+        '이 이동이 두 번째 B+Tree 하강의 시작이다. 범위 검색이면 일치한 secondary record마다 이 이동이 반복된다. 넓은 범위의 비-covering 쿼리가 느린 이유다.',
+      facts: [
+        { key: 'function', value: '`row_sel_get_clust_rec_for_mysql()`' },
+        { key: '범위 검색', value: '일치한 secondary record마다 1번씩 반복' },
+      ],
+      lines: ['clustered lookup id=20'],
+      sources: [s.clustLookup, s.clustLookupCall],
     },
     {
       id: 'descend-primary',
       layer: 'btree',
       path: 'critical',
       kind: 'mutate',
-      node: 'index',
-      state: 'primary',
-      after: {
-        ...LEAF,
-        rows: [
-          ['10', '—'],
-          ['20', '← id=20 하강 중'],
-          ['30', '—'],
-        ],
-      },
-      title: 'PK로 clustered B+Tree 하강',
-      summary: '`id = 20`으로 PRIMARY를 root부터 다시 탄다.',
+      node: 'primary',
+      state: 'tree',
+      after: PRIMARY_FOUND,
+      title: '`PRIMARY` 하강: 전체 row',
+      summary: 'root에서 `10` pointer를 따라 leaf로 내려가 `id = 20` row를 찾는다.',
       detail:
-        '이것이 두 번째 하강이다. 범위 검색이면 일치하는 secondary record마다 반복된다. 넓은 범위의 비-covering 쿼리가 느린 이유다.',
-      facts: [
-        { key: 'function', value: '`row_sel_get_clust_rec_for_mysql()`' },
-        { key: '범위 검색', value: '일치한 secondary record마다 1번씩 반복' },
-      ],
-      lines: ['clustered lookup id=20', '16384 B / page'],
-      sources: [s.clustLookup, s.clustLookupCall],
-    },
-    {
-      id: 'match-clustered',
-      layer: 'btree',
-      path: 'critical',
-      kind: 'mutate',
-      node: 'index',
-      state: 'primary',
-      after: {
-        ...LEAF,
-        rows: [
-          ['10', '—'],
-          ['20', 'on → v=2'],
-          ['30', '—'],
-        ],
-      },
-      title: 'clustered leaf: 전체 row',
-      summary: 'clustered leaf record = PK + `DB_TRX_ID` + `DB_ROLL_PTR` + 나머지 컬럼.',
-      detail:
-        '숨은 두 컬럼은 MVCC의 핵심이다(lesson 9). `DB_TRX_ID`는 마지막으로 수정한 trx, `DB_ROLL_PTR`은 이전 버전이 있는 undo의 위치다.',
+        'clustered leaf record = PK + `DB_TRX_ID` + `DB_ROLL_PTR` + 나머지 컬럼이다. 숨은 두 컬럼은 MVCC의 핵심이다(lesson 9). `DB_TRX_ID`는 마지막으로 수정한 trx, `DB_ROLL_PTR`은 이전 버전이 있는 undo의 위치다.',
       facts: [
         { key: 'hidden columns', value: '`DB_TRX_ID` 6 B, `DB_ROLL_PTR` 7 B' },
         { key: 'record size', value: '30 B (header 5 + `id` 4 + hidden 13 + `k`·`v` 8)' },
       ],
-      lines: ['row (20,200,2)'],
+      lines: ['root → leaf', 'row (20, 200, 2)'],
       record: {
         title: 'Clustered leaf record `id=20`',
         protocol: 'InnoDB compact record',
@@ -262,19 +242,19 @@ export const lesson: Lesson = {
           { name: 'v', value: '2', note: 'big-endian, sign bit flipped', segment: 'columns', offset: 26, length: 4 },
         ],
       },
-      sources: [s.clustSysCols, s.sysColLens, s.recHeader, s.intOrder, s.rollPtr],
+      sources: [s.descent, s.clustSysCols, s.sysColLens, s.recHeader, s.intOrder, s.rollPtr],
     },
     {
       id: 'return-row',
       layer: 'sql',
       path: 'critical',
       kind: 'move',
-      from: 'index',
+      from: 'primary',
       to: 'client',
       token: { kind: 'response', label: '1 row: v=2' },
       title: '결과 반환',
       summary: '`v = 2`',
-      detail: '비-covering 조회 하나 = B+Tree 하강 두 번이다.',
+      detail: '비-covering 조회 하나 = B+Tree 하강 두 번(`idx_k` → `PRIMARY`)이다.',
       facts: [
         { key: 'descents', value: '2 (secondary + clustered)' },
         { key: 'covering index면', value: '1 (다음 단계)' },
@@ -286,25 +266,19 @@ export const lesson: Lesson = {
       id: 'covering',
       layer: 'sql',
       path: 'side',
-      kind: 'mutate',
-      node: 'sql',
-      after: {
-        ...PLAN,
-        rows: [
-          ['index', 'idx_k'],
-          ['need_to_access_clustered', 'false'],
-          ['Extra', 'Using index'],
-        ],
-      },
-      title: 'covering index',
-      summary: '`SELECT id FROM t WHERE k = 200`은 secondary leaf에서 끝난다.',
+      kind: 'move',
+      from: 'idx_k',
+      to: 'client',
+      token: { kind: 'response', label: '1 row: id=20 (Using index)' },
+      title: 'covering index: `PRIMARY`를 건너뜀',
+      summary: '`SELECT id FROM t WHERE k = 200`은 `idx_k` leaf에서 끝난다.',
       detail:
-        '필요한 컬럼(`k`, `id`)이 모두 `idx_k`에 있으면 clustered index를 건너뛴다. EXPLAIN Extra에 `Using index`가 뜬다. MVCC 때문에 생기는 예외는 lesson 9.6에서 본다.',
+        '필요한 컬럼(`k`, `id`)이 모두 `idx_k`에 있으면 `need_to_access_clustered = false`다. PK hop 없이 secondary leaf에서 바로 답한다. EXPLAIN Extra에 `Using index`가 뜬다. MVCC 때문에 생기는 예외는 lesson 9.6에서 본다.',
       facts: [
         { key: 'flag', value: '`need_to_access_clustered = false`' },
         { key: 'EXPLAIN Extra', value: '`Using index`' },
       ],
-      lines: ['plan idx_k, covering'],
+      lines: ['covering: idx_k only'],
       sources: [s.needClustered, s.needClusteredRead, s.explainExtra],
     },
     {
@@ -312,7 +286,7 @@ export const lesson: Lesson = {
       layer: 'btree',
       path: 'side',
       kind: 'mutate',
-      node: 'index',
+      node: 'primary',
       state: 'key',
       after: { ...PLAN, rows: [['clustered key', 'DB_ROW_ID (PK 없음)']] },
       title: 'PK가 없는 테이블',
