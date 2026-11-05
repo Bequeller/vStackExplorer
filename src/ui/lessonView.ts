@@ -44,37 +44,44 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
     h('button', { type: 'button', class: 'seg', 'data-index': i, 'aria-label': `단계 ${i + 1}: ${step.title.replace(/`/g, '')}`, title: `${i + 1}. ${step.title.replace(/`/g, '')}` }),
   );
   const segbar = h('div', { class: 'segbar', role: 'group', 'aria-label': '단계 진행' }, ...segButtons);
-  const layerButtons = lesson.layers.map((layer) =>
-    h('button', { type: 'button', class: 'layer-btn', 'data-layer': layer.id, 'aria-pressed': 'false' }, layer.label),
+  const layerButtons = lesson.layers.map((layer, i) =>
+    h('button', { type: 'button', class: 'layer-btn', 'data-layer': layer.id, 'aria-pressed': 'false', 'aria-label': `레이어 ${i + 1}: ${layer.label}`, title: layer.label }, String(i + 1)),
   );
+  const layerName = h('span', { class: 'tb-value' });
   slots.now.replaceChildren(
-    h('div', { class: 'now-learning' },
+    h('div', { class: 'tb-group now-learning' },
       h('span', { class: 'eyebrow' }, 'NOW LEARNING'),
       h('span', { class: 'now-title', title: lesson.title }, `${meta.title} · ${lesson.subtitle}`),
+      h('div', { class: 'now-step' }, segbar, stepCount),
     ),
-    h('div', { class: 'now-step' }, stepCount, segbar),
-    h('div', { class: 'layer-select', role: 'group', 'aria-label': '레이어' }, ...layerButtons),
+    h('div', { class: 'tb-group layer-group' },
+      h('div', { class: 'tb-head' }, h('span', { class: 'eyebrow' }, 'Layer'), layerName),
+      h('div', { class: 'layer-select', role: 'group', 'aria-label': '레이어' }, ...layerButtons),
+    ),
   );
 
   // Scene panel with the network/sequence toggle and the legend.
   const sceneHost = h('div', { class: 'scene-host' });
-  const viewNetwork = h('button', { type: 'button', class: 'toggle-btn', 'aria-pressed': 'true', 'data-mode': 'network' }, glyph('network'), '네트워크');
-  const viewSequence = h('button', { type: 'button', class: 'toggle-btn', 'aria-pressed': 'false', 'data-mode': 'sequence' }, glyph('sequence'), '시퀀스');
-  const overviewBtn = h('button', { type: 'button', class: 'chip-btn' }, glyph('book'), '개요');
+  const viewNetwork = h('button', { type: 'button', class: 'toggle-btn', 'aria-pressed': 'true', 'data-mode': 'network' }, glyph('network'), 'Network');
+  const viewSequence = h('button', { type: 'button', class: 'toggle-btn', 'aria-pressed': 'false', 'data-mode': 'sequence' }, glyph('sequence'), 'Sequence');
+  const overviewBtn = h('button', { type: 'button', class: 'chip-btn' }, glyph('book'), h('span', { class: 'btn-text' }, 'Overview'));
   const replayBadge = h('span', { class: 'replay-badge', hidden: true }, '핵심 경로 리플레이');
   const legendHost = h('div', { class: 'legend-host' });
   const scenePanel = h('section', { class: 'panel scene-panel', 'aria-label': '장면' },
     h('div', { class: 'scene-toolbar' },
       h('div', { class: 'view-toggle', role: 'group', 'aria-label': '보기' }, viewNetwork, viewSequence),
-      legendHost,
-      replayBadge,
-      overviewBtn,
+      h('div', { class: 'scene-tools' }, replayBadge, overviewBtn),
     ),
     sceneHost,
+    legendHost,
   );
 
-  // Step details.
-  const details = h('aside', { class: 'panel details', 'aria-live': 'polite', 'aria-label': '단계 설명' });
+  // Step details: a titled panel whose body scrolls.
+  const detailsBody = h('div', { class: 'details-body', 'aria-live': 'polite' });
+  const details = h('aside', { class: 'panel details', 'aria-label': '단계 설명' },
+    h('div', { class: 'panel-head' }, h('h2', { class: 'panel-title' }, 'Step details')),
+    detailsBody,
+  );
 
   // Event log.
   const timelineRows: HTMLTableRowElement[] = [];
@@ -82,44 +89,45 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
   const logScroll = h('div', { class: 'log-scroll' },
     h('table', { class: 'log' },
       h('thead', {}, h('tr', {},
-        ...['No.', '시각', '출발', '도착', '레이어', '정보', '크기'].map((c) => h('th', { scope: 'col' }, c)),
+        ...['No.', 'Time', 'Source', 'Destination', 'Layer', 'Info', 'Size'].map((c) => h('th', { scope: 'col' }, c)),
       )),
       logBody,
     ),
   );
   const logCount = h('span', { class: 'log-count' });
+
+  // Player controls, in the event-log header (a sticky bottom row on phones, by CSS).
+  const speedBtn = h('button', { type: 'button', class: 'speed-btn', 'aria-label': '재생 속도 (누르면 바뀜)', title: '재생 속도' }, '1×');
+  const restartBtn = h('button', { type: 'button', class: 'btn btn--icon-phone', 'aria-label': '처음부터', title: '처음부터' }, glyph('restart'), h('span', { class: 'btn-text--hide-phone' }, 'Reset'));
+  const prevBtn = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '이전 단계 (←)', title: '이전 (←)' }, glyph('prev'));
+  const playBtn = h('button', { type: 'button', class: 'btn btn--primary', 'aria-label': '재생 (Space)' }, glyph('play'), h('span', {}, 'Play'));
+  const stepBtn = h('button', { type: 'button', class: 'btn', 'aria-label': '다음 단계 (→)', title: '다음 (→)' }, 'Step');
+  const replayBtn = h('button', { type: 'button', class: 'chip-btn replay-btn', 'aria-pressed': 'false', title: '핵심 경로를 멈춤 없이 한 번 재생', 'aria-label': '핵심 경로 리플레이' }, glyph('replay'), h('span', { class: 'btn-text' }, '리플레이'));
+  const counter = h('span', { class: 'player-count' });
+  const player = h('div', { class: 'player', role: 'group', 'aria-label': '재생 제어' },
+    h('div', { class: 'speed' }, speedBtn),
+    h('div', { class: 'player-main' }, prevBtn, playBtn, stepBtn, restartBtn),
+    counter,
+    replayBtn,
+  );
+
   const logPanel = h('section', { class: 'panel log-panel', 'aria-label': '이벤트 로그' },
     h('header', { class: 'log-head' },
-      h('h2', {}, '이벤트 로그'),
-      logCount,
+      h('h2', { class: 'panel-title' }, 'Event log'),
       renderEventLegend(lesson),
+      logCount,
+      player,
     ),
     logScroll,
   );
 
-  // Player controls.
-  const speedButtons = speeds.map((s) => h('button', { type: 'button', class: 'speed-btn', 'data-speed': s, 'aria-pressed': String(s === 1) }, `${s}×`));
-  const restartBtn = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '처음부터' , title: '처음부터' }, glyph('restart'));
-  const prevBtn = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '이전 단계 (←)', title: '이전 (←)' }, glyph('prev'));
-  const playBtn = h('button', { type: 'button', class: 'play-btn', 'aria-label': '재생 (Space)' }, glyph('play'));
-  const stepBtn = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '다음 단계 (→)', title: '다음 (→)' }, glyph('step'));
-  const replayBtn = h('button', { type: 'button', class: 'chip-btn replay-btn', 'aria-pressed': 'false', title: '핵심 경로를 멈춤 없이 한 번 재생', 'aria-label': '핵심 경로 리플레이' }, glyph('replay'), h('span', { class: 'btn-text' }, '리플레이'));
-  const counter = h('span', { class: 'player-count' });
-  const player = h('div', { class: 'player', role: 'group', 'aria-label': '재생 제어' },
-    h('div', { class: 'speed', role: 'group', 'aria-label': '속도' }, ...speedButtons),
-    h('div', { class: 'player-main' }, restartBtn, prevBtn, playBtn, stepBtn),
-    counter,
-    replayBtn,
-    h('span', { class: 'kbd-hint' }, '← → 단계 · Space 재생'),
-  );
-
-  slots.workspace.replaceChildren(scenePanel, details, logPanel, player);
+  slots.workspace.replaceChildren(scenePanel, details, logPanel);
 
   const view: LessonView = mountLesson(sceneHost, lesson, meta, startIndex, { reducedMotion });
   const { timeline, placed } = view;
   legendHost.replaceWith(renderNodeLegend(placed));
   timeline.forEach((event) => {
-    const row = renderLogRow(event, total);
+    const row = renderLogRow(event);
     timelineRows.push(row);
     logBody.appendChild(row);
   });
@@ -135,12 +143,12 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
   const onState = (state: PlayerState): void => {
     const { index } = state;
     lastPlayed = Math.max(lastPlayed, index);
-    playBtn.replaceChildren(glyph(state.playing ? 'pause' : 'play'));
+    playBtn.replaceChildren(glyph(state.playing ? 'pause' : 'play'), h('span', {}, state.playing ? 'Pause' : 'Play'));
     playBtn.setAttribute('aria-label', state.playing ? '일시정지 (Space)' : '재생 (Space)');
     playBtn.setAttribute('aria-pressed', String(state.playing));
     prevBtn.disabled = index === 0;
     stepBtn.disabled = index === total - 1;
-    for (const b of speedButtons) b.setAttribute('aria-pressed', String(Number(b.dataset.speed) === state.speed));
+    speedBtn.textContent = `${state.speed}×`;
     replayBtn.setAttribute('aria-pressed', String(state.replaying));
     replayBadge.hidden = !state.replaying;
     slots.workspace.classList.toggle('is-replaying', state.replaying);
@@ -160,6 +168,8 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
       else b.removeAttribute('aria-current');
     });
     for (const b of layerButtons) b.setAttribute('aria-pressed', String(b.dataset.layer === step.layer));
+    layerName.textContent = lesson.layers.find((l) => l.id === step.layer)?.label ?? step.layer;
+    window.dispatchEvent(new CustomEvent('vse:step', { detail: { index } }));
 
     timelineRows.forEach((row, i) => {
       row.hidden = i > lastPlayed;
@@ -170,7 +180,7 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
 
     const before = index === 0 ? undefined : view.player.statesAfter(index - 1);
     const after = view.player.statesAfter(index);
-    renderDetails(details, placed, step, index, timeline[index], {
+    renderDetails(detailsBody, placed, step, index, timeline[index], {
       before: step.kind === 'mutate' ? before?.[mutateKey(step)] ?? stateOf(lesson.states, step)?.view : undefined,
       after: step.kind === 'mutate' ? after[mutateKey(step)] : undefined,
       stateTitle: step.kind === 'mutate' ? stateOf(lesson.states, step)?.title : undefined,
@@ -186,14 +196,12 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
   stepBtn.addEventListener('click', () => view.player.next());
   playBtn.addEventListener('click', () => view.player.toggle());
   replayBtn.addEventListener('click', () => (view.player.state.replaying ? view.player.pause() : view.player.replay()));
-  // Tapping the active speed cycles to the next one: the phone player shows only that button.
-  for (const b of speedButtons) {
-    b.addEventListener('click', () => {
-      const speed = speeds.find((s) => s === Number(b.dataset.speed)) ?? 1;
-      const next = speeds[(speeds.indexOf(speed) + 1) % speeds.length] ?? speed;
-      view.player.setSpeed(speed === view.player.state.speed ? next : speed);
-    });
-  }
+  // One speed button: tap to cycle 1× → 2× → 0.5×.
+  speedBtn.addEventListener('click', () => {
+    const order = [1, 2, 0.5].filter((s) => (speeds as readonly number[]).includes(s));
+    const next = order[(order.indexOf(view.player.state.speed) + 1) % order.length] ?? 1;
+    view.player.setSpeed(next);
+  });
   segbar.addEventListener('click', (e) => {
     const b = (e.target as Element).closest<HTMLElement>('[data-index]');
     if (b) view.player.seek(Number(b.dataset.index));
@@ -353,7 +361,7 @@ function renderState(title: string, before: StateView | undefined, after: StateV
   );
 }
 
-function renderLogRow(event: TimelineEvent, total: number): HTMLTableRowElement {
+function renderLogRow(event: TimelineEvent): HTMLTableRowElement {
   return h('tr', {
     'data-index': event.index,
     class: `log-row--${event.path}${event.decodable ? ' log-row--decodable' : ''}`,
@@ -361,7 +369,7 @@ function renderLogRow(event: TimelineEvent, total: number): HTMLTableRowElement 
     hidden: true,
     title: event.decodable ? '클릭하면 디코더가 열립니다' : '클릭하면 이 단계로 이동합니다 (디코딩할 레코드 없음)',
   },
-    h('td', { class: 'log-no' }, h('span', { class: `kind-dot kind-${event.kind}`, 'aria-label': EVENT_KIND_LABEL[event.kind] }), String(event.index + 1).padStart(String(total).length, '0')),
+    h('td', { class: 'log-no' }, h('span', { class: `no-circle kind-${event.kind}`, title: EVENT_KIND_LABEL[event.kind] }, String(event.index + 1))),
     h('td', { class: 'log-time' }, formatTime(event.time)),
     h('td', {}, event.source),
     h('td', {}, event.destination),
@@ -373,7 +381,7 @@ function renderLogRow(event: TimelineEvent, total: number): HTMLTableRowElement 
 
 function renderNodeLegend(lesson: PlacedLesson): HTMLElement {
   const kinds = [...new Set(lesson.nodes.map((n) => n.kind))];
-  return h('ul', { class: 'legend', 'aria-label': '노드 색 범례' },
+  return h('ul', { class: 'legend legend--nodes', 'aria-label': '노드 색 범례' },
     ...kinds.map((k) => h('li', { class: `node--${k}` }, h('span', { class: 'swatch' }), NODE_KIND_LABEL[k])),
   );
 }

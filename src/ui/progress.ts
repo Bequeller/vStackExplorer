@@ -34,3 +34,9 @@ export function doneCount(keys: string[]): number {
   const all = read();
   return keys.filter((k) => all[k] === 'done').length;
 }
+
+/** How many of these lessons are begun but not finished. */
+export function startedCount(keys: string[]): number {
+  const all = read();
+  return keys.filter((k) => all[k] === 'started').length;
+}

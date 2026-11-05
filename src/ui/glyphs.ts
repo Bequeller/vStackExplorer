@@ -31,3 +31,30 @@ export function glyph(name: GlyphName): SVGSVGElement {
   el.appendChild(path);
   return el;
 }
+
+function node<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string>, parent?: Element): SVGElementTagNameMap[K] {
+  const created = document.createElementNS(NS, tag);
+  for (const [key, value] of Object.entries(attrs)) created.setAttribute(key, value);
+  parent?.appendChild(created);
+  return created;
+}
+
+/** The logo mark: an isometric cube inside four corner brackets (our own drawing). */
+export function logo(): SVGSVGElement {
+  const mark = node('svg', { viewBox: '0 0 40 40', class: 'logo', 'aria-hidden': 'true' });
+  node('path', { class: 'logo-frame', d: 'M2 12V2h10M28 2h10v10M38 28v10H28M12 38H2V28' }, mark);
+  node('path', { class: 'logo-cube', d: 'M20 9l9.5 5.5v11L20 31l-9.5-5.5v-11zM10.5 14.5L20 20l9.5-5.5M20 20v11' }, mark);
+  return mark;
+}
+
+/** Hidden gradients for the scene illustrations' faces; colors come from CSS (`.g-*` classes). */
+export function iconDefs(): SVGSVGElement {
+  const root = node('svg', { class: 'icon-defs', width: '0', height: '0', 'aria-hidden': 'true', focusable: 'false' });
+  const defs = node('defs', {}, root);
+  for (const face of ['top', 'left', 'right']) {
+    const gradient = node('linearGradient', { id: `vse-face-${face}`, x1: '0', y1: '0', x2: '0', y2: '1' }, defs);
+    node('stop', { offset: '0', class: `g-${face}-a` }, gradient);
+    node('stop', { offset: '1', class: `g-${face}-b` }, gradient);
+  }
+  return root;
+}

@@ -284,7 +284,8 @@ export class NetworkView {
     if (!this.where) return;
     const box = this.camera.box;
     const k = this.px > 0 ? box.w / this.px : 1;
-    this.tag.setAttribute('transform', `translate(${(box.x + 10 * k).toFixed(1)} ${(box.y + 10 * k).toFixed(1)}) scale(${k.toFixed(4)})`);
+    // Below the toolbar that floats over the scene's top-left corner (the network/sequence toggle).
+    this.tag.setAttribute('transform', `translate(${(box.x + 12 * k).toFixed(1)} ${(box.y + 54 * k).toFixed(1)}) scale(${k.toFixed(4)})`);
   }
 
   private openInset(context: StepContext): { group: SVGGElement; body: SVGGElement; box: Box; context: StepContext } | null {

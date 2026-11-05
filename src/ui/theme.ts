@@ -1,6 +1,7 @@
 // Light and dark themes follow the system setting until the user picks one;
 // the choice is remembered in localStorage.
 
+import { h } from './dom';
 import { glyph } from './glyphs';
 
 type Theme = 'light' | 'dark';
@@ -25,18 +26,16 @@ export function applyStoredTheme(): void {
   if (theme) document.documentElement.dataset.theme = theme;
 }
 
-export function themeToggle(): HTMLButtonElement {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'icon-btn theme-toggle';
+/** A segmented sun | moon pair: the active half is filled. */
+export function themeToggle(): HTMLElement {
+  const light = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '라이트 테마', title: '라이트 테마' }, glyph('sun'));
+  const dark = h('button', { type: 'button', class: 'icon-btn', 'aria-label': '다크 테마', title: '다크 테마' }, glyph('moon'));
   const render = (): void => {
-    const dark = currentTheme() === 'dark';
-    button.replaceChildren(glyph(dark ? 'sun' : 'moon'));
-    button.setAttribute('aria-label', `${dark ? '라이트' : '다크'} 테마로 전환`);
-    button.title = button.getAttribute('aria-label') ?? '';
+    const isDark = currentTheme() === 'dark';
+    light.setAttribute('aria-pressed', String(!isDark));
+    dark.setAttribute('aria-pressed', String(isDark));
   };
-  button.addEventListener('click', () => {
-    const next: Theme = currentTheme() === 'dark' ? 'light' : 'dark';
+  const choose = (next: Theme): void => {
     document.documentElement.dataset.theme = next;
     try {
       localStorage.setItem(KEY, next);
@@ -44,8 +43,10 @@ export function themeToggle(): HTMLButtonElement {
       // Storage can be unavailable (private mode); the theme still applies for this page.
     }
     render();
-  });
+  };
+  light.addEventListener('click', () => choose('light'));
+  dark.addEventListener('click', () => choose('dark'));
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
   render();
-  return button;
+  return h('div', { class: 'theme-toggle', role: 'group', 'aria-label': '테마' }, light, dark);
 }
