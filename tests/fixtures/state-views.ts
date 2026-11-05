@@ -19,13 +19,11 @@ export const meta: TopicMeta = {
   checkedOn: '2026-11-04',
   lessons: ['state-views'],
   layout: {
-    width: 1600,
-    height: 900,
     nodes: [
-      { id: 'client', label: 'Client', kind: 'client', icon: 'laptop', x: 200, y: 450 },
-      { id: 'broker', label: 'Broker', kind: 'container', icon: 'broker', x: 500, y: 450 },
-      { id: 'bpool', label: 'Buffer pool', kind: 'framework', icon: 'buffer-pool', x: 800, y: 450 },
-      { id: 'index', label: 'B+Tree', kind: 'storage', icon: 'btree', x: 1100, y: 450 },
+      { id: 'client', label: 'Client', kind: 'client', icon: 'laptop', gx: 0, gy: 0 },
+      { id: 'broker', label: 'Broker', kind: 'container', icon: 'broker', gx: 1, gy: 0 },
+      { id: 'bpool', label: 'Buffer pool', kind: 'framework', icon: 'buffer-pool', gx: 2, gy: 0 },
+      { id: 'index', label: 'B+Tree', kind: 'storage', icon: 'btree', gx: 3, gy: 0 },
     ],
   },
 };

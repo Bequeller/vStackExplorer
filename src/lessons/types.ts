@@ -79,8 +79,8 @@ export type IconKind =
   | 'iam' // identity: IAM role, STS, OIDC provider
 
 /**
- * A component on the topic's map. x and y are the base center of the illustration, in scene
- * units. Nodes live in the topic layout (meta.ts), so every lesson in a topic shares one map.
+ * A component on the topic's map. Nodes live in the topic layout (meta.ts), so every lesson in a
+ * topic shares one map.
  */
 export interface TopicNode {
   id: string;
@@ -90,8 +90,9 @@ export interface TopicNode {
   sublabel?: string;
   kind: NodeKind;
   icon: IconKind;
-  x: number;
-  y: number;
+  /** The node's cell on the iso ground grid: gx runs to the lower right, gy to the lower left (decision 0016). */
+  gx: number;
+  gy: number;
 }
 
 /**
@@ -99,9 +100,6 @@ export interface TopicNode {
  * direction (outside → inside, caller → callee, memory above disk). docs/DESIGN.md (Principles).
  */
 export interface TopicLayout {
-  /** World size in scene units; the camera frames parts of it. */
-  width: number;
-  height: number;
   nodes: TopicNode[];
   /** Boundaries drawn as stacked isometric slabs: a process, a machine, a VPC (decision 0015). */
   regions?: Region[];

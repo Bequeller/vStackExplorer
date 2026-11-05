@@ -137,7 +137,7 @@ describe('lesson schema', () => {
     expect(errorsFor(relabeled)).toEqual([]);
 
     const moved = copy();
-    moved.nodes = moved.nodes.map((n) => (n === 'tomcat' ? ({ id: 'tomcat', x: 10 } as unknown as string) : n));
+    moved.nodes = moved.nodes.map((n) => (n === 'tomcat' ? ({ id: 'tomcat', gx: 10 } as unknown as string) : n));
     expect(has(errorsFor(moved), 'cannot be set per lesson')).toBe(true);
   });
 

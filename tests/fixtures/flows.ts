@@ -18,13 +18,11 @@ export const meta: TopicMeta = {
   checkedOn: '2026-11-04',
   lessons: ['flows'],
   layout: {
-    width: 1600,
-    height: 1000,
     nodes: [
-      { id: 'users', label: 'Users', kind: 'client', icon: 'globe', x: 200, y: 500 },
-      { id: 'app', label: 'App', kind: 'app', icon: 'service', x: 600, y: 500 },
-      { id: 'db', label: 'DB', kind: 'storage', icon: 'database', x: 1000, y: 700 },
-      { id: 'lb', label: 'LB', kind: 'cloud', icon: 'load-balancer', x: 1000, y: 300 },
+      { id: 'users', label: 'Users', kind: 'client', icon: 'globe', gx: 0, gy: 0 },
+      { id: 'app', label: 'App', kind: 'app', icon: 'service', gx: 1, gy: 0 },
+      { id: 'db', label: 'DB', kind: 'storage', icon: 'database', gx: 2, gy: 1 },
+      { id: 'lb', label: 'LB', kind: 'cloud', icon: 'load-balancer', gx: 2, gy: -1 },
     ],
   },
 };

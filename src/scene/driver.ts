@@ -6,12 +6,25 @@ export type NodeStates = Readonly<Record<string, StateView>>;
 /** How the scene is drawn: the illustrated network or the sequence diagram. */
 export type SceneMode = 'network' | 'sequence';
 
+/** A map node projected to the screen: x and y are the base center of its illustration. */
+export interface PlacedNode extends TopicNode {
+  x: number;
+  y: number;
+}
+
+/** A topic map projected to the screen, with a world size that holds every node. */
+export interface PlacedLayout extends Omit<TopicLayout, 'nodes'> {
+  width: number;
+  height: number;
+  nodes: PlacedNode[];
+}
+
 /** A lesson with its node ids resolved to the topic layout's positioned nodes. */
 export interface PlacedLesson extends Omit<Lesson, 'nodes'> {
-  nodes: TopicNode[];
+  nodes: PlacedNode[];
   world: { width: number; height: number };
   /** The whole topic map, for geometry shared by every lesson (region slabs). */
-  layout: TopicLayout;
+  layout: PlacedLayout;
 }
 
 /** What changed in one state view, per view type (computed by the engine's `diffView`). */

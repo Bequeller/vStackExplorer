@@ -1,6 +1,7 @@
 // Regions: boundaries drawn as stacked isometric slabs (decision 0015). The geometry functions
 // are pure, so validation can check footprints without a DOM.
 import type { Region, TopicLayout } from '../lessons/types';
+import type { PlacedLayout } from './driver';
 import { COS30, SIN30, iso, points } from './iso';
 import { svg, text } from './svg';
 
@@ -35,7 +36,7 @@ export function toGround(sx: number, sy: number): [number, number] {
  * footprints, plus a margin. Regions in a parent cycle or with an unknown parent are skipped
  * (validation reports them).
  */
-export function regionFootprints(layout: Pick<TopicLayout, 'nodes' | 'regions'>): Map<string, Footprint> {
+export function regionFootprints(layout: Pick<PlacedLayout, 'nodes' | 'regions'>): Map<string, Footprint> {
   const regions = layout.regions ?? [];
   const byId = new Map(regions.map((r) => [r.id, r]));
   const nodes = new Map(layout.nodes.map((n) => [n.id, toGround(n.x, n.y)]));
@@ -93,7 +94,7 @@ export function regionFootprints(layout: Pick<TopicLayout, 'nodes' | 'regions'>)
 }
 
 /** How high each node stands: the top of its innermost slab (0 outside every region). */
-export function nodeLifts(layout: Pick<TopicLayout, 'nodes' | 'regions'>): Map<string, number> {
+export function nodeLifts(layout: Pick<PlacedLayout, 'nodes' | 'regions'>): Map<string, number> {
   const footprints = regionFootprints(layout);
   const lifts = new Map<string, number>();
   for (const region of layout.regions ?? []) {
@@ -140,9 +141,9 @@ export class RegionLayer {
   private readonly slabs = new Map<string, SVGGElement>();
   /** Region id → every node id inside it, including child regions' nodes. */
   private readonly members = new Map<string, Set<string>>();
-  private readonly layout: Pick<TopicLayout, 'nodes' | 'regions'>;
+  private readonly layout: Pick<PlacedLayout, 'nodes' | 'regions'>;
 
-  constructor(layer: SVGGElement, layout: Pick<TopicLayout, 'nodes' | 'regions'>) {
+  constructor(layer: SVGGElement, layout: Pick<PlacedLayout, 'nodes' | 'regions'>) {
     this.layout = layout;
     const footprints = [...regionFootprints(layout).values()];
     const regions = layout.regions ?? [];

@@ -1,6 +1,6 @@
-import type { StateView, Step, TopicNode } from '../lessons/types';
+import type { StateView, Step } from '../lessons/types';
 import { Camera, type Box } from './camera';
-import type { NodeStates, PlacedLesson, StepContext } from './driver';
+import type { NodeStates, PlacedLesson, PlacedNode, StepContext } from './driver';
 import { ICON_TOP, drawIcon } from './icons';
 import { COS30 } from './iso';
 import { RegionLayer, nodeLifts } from './regions';
@@ -43,7 +43,7 @@ const INSET_MIN_PX = 560;
  */
 export class NetworkView {
   readonly element: SVGSVGElement;
-  private readonly nodes = new Map<string, TopicNode>();
+  private readonly nodes = new Map<string, PlacedNode>();
   private readonly groups = new Map<string, SVGGElement>();
   private readonly badges = new Map<string, SVGGElement>();
   private readonly links = new Map<string, SVGLineElement>();
@@ -321,7 +321,7 @@ export class NetworkView {
   }
 
   /** Where links attach to a node: above its base, standing on its slab. */
-  private anchor(node: TopicNode): [number, number] {
+  private anchor(node: PlacedNode): [number, number] {
     return [node.x, node.y - this.lift(node.id) - ANCHOR_Z];
   }
 
@@ -368,7 +368,7 @@ export class NetworkView {
     return [[p[0] + ux * clear, p[1] + uy * clear], [q[0] - ux * clear, q[1] - uy * clear]];
   }
 
-  private drawNode(layer: SVGGElement, node: TopicNode): void {
+  private drawNode(layer: SVGGElement, node: PlacedNode): void {
     const group = svg('g', {
       class: `node node--${node.kind} is-hidden`,
       transform: `translate(${node.x} ${node.y})`,

@@ -1,6 +1,8 @@
 import type { DecodedRecord, Lesson, NodeKind, Source, StateView, TopicMeta } from '../lessons/types';
+import type { PlacedLayout } from '../scene/driver';
 import { iconKinds } from '../scene/icons';
 import { contains, overlaps, regionFootprints, toGround } from '../scene/regions';
+import { projectLayout } from './place';
 import { layoutRecord, parseHex } from './record';
 import { mutateKey, stateKey } from './states';
 
@@ -35,26 +37,31 @@ export function validateTopic(meta: TopicMeta): string[] {
   }
   if (!meta.lessons?.length) at('lessons', 'list at least one lesson id');
   const layout = meta.layout;
-  if (!layout || !(layout.width > 0) || !(layout.height > 0)) {
-    at('layout', 'needs a positive width and height');
+  if (!layout?.nodes?.length) {
+    at('layout', 'needs at least one node');
     return errors;
   }
   const ids = new Set<string>();
-  for (const node of layout.nodes ?? []) {
+  let placeable = true;
+  for (const node of layout.nodes) {
     const where = `layout node ${node.id}`;
     if (ids.has(node.id)) at(where, 'duplicate node id');
     ids.add(node.id);
     if (!nonEmpty(node.label)) at(where, 'label is empty');
     if (!NODE_KINDS.includes(node.kind)) at(where, `kind must be one of ${NODE_KINDS.join(', ')}`);
     if (!iconKinds.includes(node.icon)) at(where, `icon "${node.icon}" is not an IconKind (see docs/DESIGN.md, Icons)`);
-    if (!inside(node.x, layout.width) || !inside(node.y, layout.height)) at(where, 'position is outside the layout');
+    unknownKeys(node, ['id', 'label', 'sublabel', 'kind', 'icon', 'gx', 'gy'], (k) => at(where, `unknown key "${k}" (positions are grid cells gx, gy)`));
+    if (!Number.isFinite(node.gx) || !Number.isFinite(node.gy)) {
+      at(where, 'needs a grid cell: finite gx and gy');
+      placeable = false;
+    }
   }
-  checkRegions(layout, ids, (where, m) => at(where, m));
+  if (placeable) checkRegions(projectLayout(layout), ids, (where, m) => at(where, m));
   return errors;
 }
 
 /** Region rules (decision 0015): a tree of slabs whose computed footprints do not collide. */
-function checkRegions(layout: TopicMeta['layout'], nodeIds: Set<string>, at: (where: string, message: string) => void): void {
+function checkRegions(layout: PlacedLayout, nodeIds: Set<string>, at: (where: string, message: string) => void): void {
   const regions = layout.regions ?? [];
   const regionIds = new Set<string>();
   const owner = new Map<string, string>();
@@ -356,10 +363,6 @@ function findFunctions(value: unknown, path: string, found: (path: string) => vo
 
 function nonEmpty(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
-}
-
-function inside(value: number, max: number): boolean {
-  return Number.isFinite(value) && value >= 0 && value <= max;
 }
 
 function sameVersions(a: Record<string, string>, b: Record<string, string>): boolean {
