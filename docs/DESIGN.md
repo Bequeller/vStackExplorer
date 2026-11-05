@@ -1,5 +1,5 @@
 ---
-last-verified: 2026-11-04
+last-verified: 2026-11-05
 sources: [https://protocol-explorer-alpha.vercel.app/]
 ---
 
@@ -12,10 +12,11 @@ Protocol Explorer (protocol-explorer-alpha.vercel.app, by Dilum Sanjaya), played
 ## Required screens
 
 1. **App shell, not a document page.** A fixed, full-viewport layout with no page scroll on desktop:
-   - Top bar: topic drawer button, site title, "now learning" (topic · lesson, step n/N with a segmented progress bar), a layer selector (for example Servlet / Spring MVC / Application / Data), learning progress across all lessons (n/N complete), and theme toggle.
-   - Main row: the scene (left, large) and the step-details panel (right).
-   - Bottom: the event log and the player controls.
-2. **Topic drawer.** Slides over from the left. Tabs filter by group (All, Spring, MySQL, EKS); each row shows the lesson name, a subtitle, and a progress dot (not started, in progress, done).
+   - Top bar (one row, about 65px at 1440 wide): a framed logo mark and the site title with a one-line tagline, "now learning" (topic · lesson, step n/N with a segmented progress bar), a layer selector (numbered square cells with the active layer's name above them), learning progress across all lessons (a percentage, a segmented bar, and "n / N complete · m in progress"), and theme toggle. Thin vertical rules separate the groups.
+   - At 1280px wide and up, the topic list is a permanent left column (about 390px at 1440). Below that, it is the drawer.
+   - Main area: the scene (left, large) and the step-details panel (right, about 290–320px) on top; the event log spans both underneath.
+   - Player controls live in the event-log header, right side (see 8). There is no separate bottom bar on desktop.
+2. **Topic list.** A panel titled with the group's name ("INTERNET PROTOCOLS" style: large uppercase). Tabs filter by group (All, Spring, MySQL, EKS) and show a count. Each topic row shows a progress dot, the topic name, a one-line subtitle, and a chevron; the open topic is outlined in the accent color and lists its lessons' steps underneath as a numbered list (number in a circle, uppercase step title, one-line subtitle), with the current step's circle filled.
 3. **Illustrated scene.**
    - Nodes are isometric line-art illustrations drawn in our own SVG: client laptop, Tomcat server, filter stack, `DispatcherServlet` hub, controller, service, repository, database cylinder, Kubernetes node, and so on. They are not rectangles with text.
    - Boundaries (a process, a machine, a VPC, a managed control plane) are stacked isometric slabs under the nodes, not flat outlines. A nested region sits one slab higher, each node stands on its innermost slab, and the region's name is painted on the floor along the near edge. Managed parts are dashed (decision 0015). Slab tops are translucent, so up close a slab reads as a raised plate, not a second background. Because a zoomed-in camera leaves the slab edges and labels off screen, a tag in the scene's top-left corner names the regions the current step runs in ("outer › inner"; two places joined by "↔").
@@ -35,14 +36,14 @@ Protocol Explorer (protocol-explorer-alpha.vercel.app, by Dilum Sanjaya), played
    - Then at most about 5 lines of prose and a facts table of 2 to 4 rows.
    - A highlighted card shows the current message: a kind badge, from → to, its key lines, and "event k of K · protocol · size".
    - Long explanations go behind an "Overview" button (lesson-level), not into every step.
-6. **Event log (the counterpart of "Packet flow").** A table that grows as steps play: No., time, source, destination, protocol/layer, info, size or duration. A colored dot shows the kind, with a legend in the header. Clicking a row opens the decoder for that event.
+6. **Event log (the counterpart of "Packet flow").** A table that grows as steps play: No., time, source, destination, protocol/layer, info, size or duration. The row number sits in a filled circle of the kind's color, with a legend in the header. Clicking a row opens the decoder for that event.
 7. **Decoder (full-screen overlay).**
    - Header: event number, name, and "time · from → to · protocol · size", with previous/next and close buttons.
    - A proportional bar shows the layers of the message (for example HTTP request line / headers / body, or InnoDB record header / fields).
    - Left: every field with its real name, value, and a one-line meaning. Fields whose value varies per run carry an "E.G." tag.
    - Right: the raw bytes or text, colored per layer. Hovering a field highlights its bytes, and the other way round.
    - Footer: a legend for the tags.
-8. **Player controls.** Speed (1×, 2×, 0.5×), previous, play/pause, step, restart. Keyboard: arrows, space.
+8. **Player controls.** In the event-log header, right-aligned: speed (`1×`, tap to cycle 1× / 2× / 0.5×), previous, a primary rectangular `▶ PLAY` / `❚❚ PAUSE` button, `STEP`, and `↻ RESET`; replay stays next to them. Keyboard: arrows, space.
 
 ## Principles for this project
 
@@ -140,12 +141,23 @@ Every node picks one of these `IconKind` illustrations (`src/scene/icons.ts`, ou
 ## Layout and theme
 
 - One map per topic: node positions live in the topic's `meta.ts` (`layout`), so every lesson in the topic draws on the same map.
-- Desktop: the app shell in "Required screens"; the step list lives in the drawer-style lesson outline and in the segmented progress bar, not as a long column.
+- Desktop: the app shell in "Required screens". At 1280px and up the topic list with the open lesson's numbered steps is a permanent left column; below that it is the drawer, and the segmented progress bar carries the step position.
 - Phone (≤ 900px): top bar collapses to drawer button, title, and step n/N. Then the scene (about half the screen, so the step details start above the fold; the camera keeps the active nodes in frame, so no horizontal scroller), the step details, the event log, and sticky player controls in one row: the active speed (tap to cycle), restart, previous, play, step, replay. No page-level horizontal scroll, 16px side gutter.
 - Scene edges fade into the background, so a node just outside the frame fades out instead of being cut off hard. A portrait scene uses a narrower minimum frame, so icons stay readable.
 - Light and dark themes from CSS custom properties, following the system setting, with a manual toggle remembered in `localStorage`.
 - Keyboard: arrow keys for previous and next step, space for play and pause.
 - Typeface: Iosevka (self-hosted from its OFL release) for code and labels; the system sans-serif stack for Korean prose if Iosevka lacks Hangul.
+
+## Visual style
+
+Measured on the reference at 1440×900, dark theme, on 2026-11-05 (decision 0018). Match these values; write our own CSS and SVG for them. The light theme keeps the same shapes with light values.
+
+- **Surfaces.** Page background `#0B1020`. Panels `#0F1628` with a 1px `#3C649F` border and 2px corner radius: square, technical panels, not rounded cards. Row dividers `#1A283E`. Panels sit 10px apart; the shell has a 16px outer gutter.
+- **Type.** Iosevka everywhere in the chrome, heavy (800) and uppercase for titles, labels, buttons, and table heads, with letter spacing about 0.05em. Panel titles are large: about 22px ("PACKET FLOW", "STEP DETAILS"). Small labels ("NOW LEARNING", "STEP 1 OF 5", table keys) are 12–13px. Text colors: primary `#B7C6F3`, labels `#AEC2EB`, the step counter label in the accent `#1F5FE0` family. Korean prose keeps normal case and the sans fallback.
+- **Buttons.** Rectangular, 32px high, 2px radius. Primary: fill `#0041B7`, border `#6C99EA`, white uppercase label. Secondary: transparent, border `#213657`, label `#B5C5F3`. The network/sequence toggle is a segmented pair; the active half is filled.
+- **Scene illustrations.** Line art: outline strokes `#6585E7` at about 1.9px on dark gradient faces (top lighter than the sides), with small cyan or light-blue detail fills (screens, LEDs). A soft shadow under each node. Labels below the node: name in 15–16px heavy Iosevka `#B7C6F3`, a second line with the address or sublabel in regular weight. The active node is larger in frame: the camera frames the step's nodes tightly. Kind colors (Color meaning) stay for tokens, badges, and legend dots, not for illustration outlines.
+- **Callouts.** A value that belongs to a node (a URL, a query) shows in a bordered box near it with a dotted leader line to the node.
+- **Grid.** A faint isometric grid fills the scene panel.
 
 ## Review
 
