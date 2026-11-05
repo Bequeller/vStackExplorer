@@ -856,7 +856,7 @@ h3 {
 }
 
 .node:not(.is-active) .icon {
-  opacity: 0.62;
+  opacity: 0.85;
 }
 
 .node-label {

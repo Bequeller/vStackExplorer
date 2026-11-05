@@ -14,6 +14,14 @@ const ANCHOR_Z = 42;
 const CLEAR = 52;
 /** How far a return lane sits beside its forward lane. */
 const LANE = 26;
+/** The node label's font size in scene units (.node-label) and its smallest size on screen. */
+const LABEL_PX = 15.5;
+const LABEL_MIN_PX = 12;
+/** Illustrations draw larger in the scene than in the icon gallery, as on the reference. */
+const ICON_SCALE = 1.3;
+/** The top of a scaled illustration above its base, and where the label block starts below it. */
+const NODE_TOP = ICON_TOP * ICON_SCALE;
+const LABEL_Y = 56;
 
 let sceneCount = 0;
 
@@ -55,6 +63,10 @@ export class NetworkView {
   private readonly criticalNodes = new Set<string>();
   /** Nodes that draw in during the current step. */
   private entering = new Set<string>();
+  /** Nodes shown or drawing in on the current step: the camera's context. */
+  private visible: string[] = [];
+  /** Each node's label group, scaled so labels stay readable when the camera zooms out. */
+  private readonly labels: SVGGElement[] = [];
   private replay = false;
   private readonly initial: NodeStates;
   private readonly tokens: TokenLayer;
@@ -199,6 +211,7 @@ export class NetworkView {
 
     // A slab appears with its first shown node; during the replay, the critical nodes' slabs.
     this.regions.show(visible);
+    this.visible = visible;
 
     this.current = new Set(step.kind === 'move' ? hopsOf(step).map((hop) => this.lane(hop.from, hop.to).key) : []);
     for (const [key, line] of this.links) {
@@ -243,6 +256,7 @@ export class NetworkView {
     if (this.inset) this.drawInset(this.inset, t);
     this.camera.update(t);
     this.placeTag();
+    this.scaleLabels();
   }
 
   /** Re-aims the camera at the current step at once, e.g. after the element was resized. */
@@ -252,14 +266,26 @@ export class NetworkView {
     this.syncInset();
     this.camera.jump(this.target());
     this.placeTag();
+    this.scaleLabels();
   }
 
-  /** The framing for the current step: its nodes and its inset, or the critical path in the replay. */
+  /**
+   * The framing for the current step: its nodes and its inset inside every node shown so far, or
+   * the critical path in the replay.
+   */
   private target(): Box {
     if (!this.step) return this.camera.box;
     if (this.replay) return this.frameFor([...this.criticalNodes]);
-    const framing = this.frameFor(this.involved(this.step));
-    return this.inset ? this.camera.frame([framing, this.inset.box]) : framing;
+    const focus = this.areasFor(this.involved(this.step));
+    if (this.inset) focus.push(this.inset.box);
+    return this.camera.frameWithContext(focus, this.areasFor(this.visible));
+  }
+
+  /** Keeps node labels at least LABEL_MIN_PX tall on screen when the camera zooms out. */
+  private scaleLabels(): void {
+    const k = this.px > 0 ? this.camera.box.w / this.px : 1;
+    const s = Math.max(1, (LABEL_MIN_PX * k) / LABEL_PX);
+    for (const labels of this.labels) labels.setAttribute('transform', `translate(0 ${LABEL_Y}) scale(${s.toFixed(3)})`);
   }
 
   /** Opens or closes the inset for the current scene width. */
@@ -292,11 +318,11 @@ export class NetworkView {
     const node = context.state && this.nodes.get(context.state.node);
     if (!node || !context.state) return null;
     const group = svg('g', { class: 'state-inset' }, this.insetLayer);
-    // The card sits right of the "상태" badge (x + 34 … x + 92), tied to the badge's end.
-    const badgeY = node.y - this.lift(node.id) - ICON_TOP + 6;
-    const x = node.x + 106;
+    // The card sits right of the "상태" badge (x + 44 … x + 102), tied to the badge's end.
+    const badgeY = node.y - this.lift(node.id) - NODE_TOP + 6;
+    const x = node.x + 116;
     const y = badgeY - 76;
-    svg('line', { class: 'state-inset-tie', x1: node.x + 92, y1: badgeY, x2: x, y2: y + 30 }, group);
+    svg('line', { class: 'state-inset-tie', x1: node.x + 102, y1: badgeY, x2: x, y2: y + 30 }, group);
     svg('rect', { class: 'state-inset-card', x, y, rx: 10 }, group);
     text(context.state.title, { class: 'state-inset-title', x: x + INSET_PAD, y: y + 20 }, group);
     const body = svg('g', { transform: `translate(${x + INSET_PAD} ${y + 30})` }, group);
@@ -376,11 +402,13 @@ export class NetworkView {
       opacity: 0,
       'data-node': node.id,
     }, layer);
-    drawIcon(group, node.icon);
-    text(node.label, { class: 'node-label', x: 0, y: 44, 'text-anchor': 'middle' }, group);
-    if (node.sublabel) text(node.sublabel, { class: 'node-sublabel', x: 0, y: 62, 'text-anchor': 'middle' }, group);
+    drawIcon(group, node.icon).setAttribute('transform', `scale(${ICON_SCALE})`);
+    const labels = svg('g', { class: 'node-labels', transform: `translate(0 ${LABEL_Y})` }, group);
+    text(node.label, { class: 'node-label', x: 0, y: 0, 'text-anchor': 'middle' }, labels);
+    if (node.sublabel) text(node.sublabel, { class: 'node-sublabel', x: 0, y: 18, 'text-anchor': 'middle' }, labels);
+    this.labels.push(labels);
     if (this.lesson.states.some((s) => s.node === node.id)) {
-      const badge = svg('g', { class: 'badge', transform: `translate(34 ${-ICON_TOP + 6})` }, group);
+      const badge = svg('g', { class: 'badge', transform: `translate(44 ${-NODE_TOP + 6})` }, group);
       svg('rect', { class: 'badge-pill', x: 0, y: -12, width: 58, height: 24, rx: 12 }, badge);
       svg('circle', { class: 'badge-dot', cx: 13, cy: 0, r: 4.5 }, badge);
       text('상태', { class: 'badge-text', x: 23, y: 0, 'dominant-baseline': 'central' }, badge);
@@ -389,15 +417,20 @@ export class NetworkView {
     this.groups.set(node.id, group);
   }
 
-  /** The camera framing for these nodes: each node's illustration and label, standing on its slab. */
+  /** The camera framing for these nodes. */
   private frameFor(nodeIds: string[]): Box {
+    return this.camera.frame(this.areasFor(nodeIds));
+  }
+
+  /** Each node's illustration and label, standing on its slab. */
+  private areasFor(nodeIds: Iterable<string>): Box[] {
     const areas: Box[] = [];
     for (const id of nodeIds) {
       const n = this.nodes.get(id);
       if (!n) continue;
-      const top = n.y - this.lift(id) - ICON_TOP - 50;
-      areas.push({ x: n.x - 90, y: top, w: 180, h: n.y - this.lift(id) + 76 - top });
+      const top = n.y - this.lift(id) - NODE_TOP - 50;
+      areas.push({ x: n.x - 110, y: top, w: 220, h: n.y - this.lift(id) + LABEL_Y + 32 - top });
     }
-    return this.camera.frame(areas);
+    return areas;
   }
 }

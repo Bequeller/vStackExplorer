@@ -19,6 +19,7 @@ The owner compared the site with Protocol Explorer and asked for its layout and 
 
 - `docs/DESIGN.md` gets a "Visual style" section with values measured on the reference at 1440×900: colors, borders, radius, type sizes, button shapes, and the line-art look of scene nodes.
 - "Required screens" now places the player in the event-log header and makes the topic list a permanent left column at 1280px and up.
+- The camera frames every node shown so far, as the reference does, instead of only the current step's nodes. A cap of 1.45× the minimum frame keeps illustrations readable on long maps such as the 9-node Spring map: past the cap, the step's nodes stay in frame and the rest lean in from the edge. Node labels keep a 12px minimum on screen. (Added 2026-11-05, after the shell redesign shipped.)
 - We write our own CSS and SVG for these values. We still copy no code, CSS, text, or assets from the reference, because it has no license (`AGENTS.md`). Layout, proportions, and measured colors are ideas, not copied expression.
 
 ## Reason
