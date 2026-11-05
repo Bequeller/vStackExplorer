@@ -6,16 +6,15 @@ import { placeLesson } from './place';
 import { Player, type PlayerOptions } from './player';
 import { buildTimeline, formatTime, type TimelineEvent } from './timeline';
 
-export { Player, defaultTimings, speeds } from './player';
+export { Player, speeds } from './player';
 export type { PlayerOptions, PlayerState, PlayerTimings } from './player';
-export { validateLesson, validateTopic, limits } from './validate';
+export { validateLesson, validateTopic } from './validate';
 export { buildTimeline, formatTime } from './timeline';
 export type { EventKind, TimelineEvent } from './timeline';
-export { layoutRecord, recordBytes } from './record';
+export { layoutRecord } from './record';
 export type { RecordLayout, RecordRun } from './record';
-export { changedRows, diffView, mutateKey, stateKey, stateOf } from './states';
+export { changedRows, diffView, mutateKey, stateOf } from './states';
 export { isStructural, stateViewSvg as renderStateView } from '../scene/stateViews';
-export { placeLesson } from './place';
 export type { PlacedLesson, SceneMode };
 
 export interface LessonView {

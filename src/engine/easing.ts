@@ -4,8 +4,6 @@ export type Easing = (t: number) => number;
 
 const clamp01 = (t: number): number => (t < 0 ? 0 : t > 1 ? 1 : t);
 
-export const linear: Easing = (t) => clamp01(t);
-
 /** Slow start and end; used for tokens moving between nodes. */
 export const easeInOutCubic: Easing = (t) => {
   const x = clamp01(t);

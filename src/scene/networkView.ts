@@ -6,7 +6,7 @@ import { COS30 } from './iso';
 import { RegionLayer, nodeLifts } from './regions';
 import { BURST_TOKENS, TokenLayer, hopsOf, laneKeys, type Flight } from './flights';
 import { drawStateView, isStructural } from './stateViews';
-import { setAttrs, svg, text } from './svg';
+import { setAttrs, svg, text, textWidth } from './svg';
 
 /** Height on the illustration where links attach, above the base center. */
 const ANCHOR_Z = 42;
@@ -24,13 +24,6 @@ const NODE_TOP = ICON_TOP * ICON_SCALE;
 const LABEL_Y = 56;
 
 let sceneCount = 0;
-
-/** Estimated advance of a label: Iosevka is 0.5em per Latin glyph; Hangul is ~1em. */
-function textWidth(value: string, fontSize: number): number {
-  let em = 0;
-  for (const ch of value) em += /[\u1100-\u11ff\u3000-\u9fff\uac00-\ud7af\uff00-\uffef]/.test(ch) ? 1 : 0.5;
-  return em * fontSize;
-}
 
 /** Whether any of a node's state views (keyed `node` or `node/id`) differs between two snapshots. */
 function nodeChanged(nodeId: string, a: NodeStates, b: NodeStates): boolean {
@@ -67,6 +60,7 @@ export class NetworkView {
   private visible: string[] = [];
   /** Each node's label group, scaled so labels stay readable when the camera zooms out. */
   private readonly labels: SVGGElement[] = [];
+  private labelTransform = '';
   private replay = false;
   private readonly initial: NodeStates;
   private readonly tokens: TokenLayer;
@@ -106,7 +100,7 @@ export class NetworkView {
     const pattern = svg('pattern', { id: `${id}-grid`, width: tileW, height: 32, patternUnits: 'userSpaceOnUse' }, defs);
     svg('path', { class: 'grid-line', d: `M0,0 L${tileW},32 M0,32 L${tileW},0` }, pattern);
 
-    const { width, height } = lesson.world;
+    const { width, height } = lesson.layout;
     svg('rect', { class: 'grid', x: -1000, y: -1000, width: width + 2000, height: height + 2000, fill: `url(#${id}-grid)` }, this.element);
 
     const regionLayer = svg('g', { class: 'regions' }, this.element);
@@ -160,7 +154,7 @@ export class NetworkView {
     }
     this.tokens = new TokenLayer(tokenLayer);
 
-    this.camera = new Camera(this.element, lesson.world);
+    this.camera = new Camera(this.element, lesson.layout);
     const first = lesson.steps[0];
     this.camera.jump(this.frameFor(first ? this.involved(first).slice(0, 1) : []));
   }
@@ -284,8 +278,11 @@ export class NetworkView {
   /** Keeps node labels at least LABEL_MIN_PX tall on screen when the camera zooms out. */
   private scaleLabels(): void {
     const k = this.px > 0 ? this.camera.box.w / this.px : 1;
-    const s = Math.max(1, (LABEL_MIN_PX * k) / LABEL_PX);
-    for (const labels of this.labels) labels.setAttribute('transform', `translate(0 ${LABEL_Y}) scale(${s.toFixed(3)})`);
+    const transform = `translate(0 ${LABEL_Y}) scale(${Math.max(1, (LABEL_MIN_PX * k) / LABEL_PX).toFixed(3)})`;
+    // Runs every frame; the scale changes only while the camera zooms, so skip unchanged writes.
+    if (transform === this.labelTransform) return;
+    this.labelTransform = transform;
+    for (const labels of this.labels) labels.setAttribute('transform', transform);
   }
 
   /** Opens or closes the inset for the current scene width. */

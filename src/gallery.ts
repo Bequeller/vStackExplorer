@@ -4,7 +4,7 @@ import './styles/fonts.css';
 import './styles/app.css';
 import type { NodeKind } from './lessons/types';
 import { lesson } from '../tests/fixtures/state-views';
-import { diffView } from './engine/states';
+import { diffView, stateOf } from './engine/states';
 import { drawIcon, iconKinds } from './scene/icons';
 import { isStructural, stateViewSvg } from './scene/stateViews';
 import { svg, text } from './scene/svg';
@@ -24,7 +24,7 @@ if (root) {
   // State view renderers (log, queue, tree), at the end of each fixture mutate.
   for (const step of lesson.steps) {
     if (step.kind !== 'mutate' || !isStructural(step.after)) continue;
-    const before = lesson.states.find((st) => st.node === step.node && (step.state === undefined || st.id === step.state))?.view;
+    const before = stateOf(lesson.states, step)?.view;
     const figure = document.createElement('figure');
     figure.className = 'gallery-view';
     figure.append(stateViewSvg(step.after, diffView(before, step.after)));

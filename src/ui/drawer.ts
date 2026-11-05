@@ -38,14 +38,14 @@ export function createDrawer(): Drawer {
   const element = h('div', { class: 'drawer-root', hidden: true }, scrim, panel);
 
   const lessons: { lesson: Lesson; group: string }[] = [];
-  const ready = (async () => {
-    for (const meta of topics()) {
-      for (const id of meta.lessons) {
-        const lesson = await loadLesson(meta.topic, id);
-        if (lesson) lessons.push({ lesson, group: meta.group });
-      }
-    }
-  })();
+  // Load every lesson chunk at once; push in topic order once all have arrived.
+  const ready = Promise.all(
+    topics().flatMap((meta) =>
+      meta.lessons.map(async (id) => ({ lesson: await loadLesson(meta.topic, id), group: meta.group })),
+    ),
+  ).then((loaded) => {
+    for (const { lesson, group } of loaded) if (lesson) lessons.push({ lesson, group });
+  });
 
   const keepStepInView = (): void => {
     list.querySelector('.step-item[aria-current="step"]')?.scrollIntoView({ block: 'nearest' });

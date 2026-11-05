@@ -1,7 +1,7 @@
 // Tokens in flight: parallel moves, count bursts, and return lanes (decision 0015, ENG-3).
 // The helpers at the top are pure, so tests can check timing without a DOM.
 import type { MoveStep, PathKind, Step, Token, TokenKind } from '../lessons/types';
-import { setAttrs, svg, text } from './svg';
+import { setAttrs, svg, text, textWidth } from './svg';
 
 /** One travel between two nodes inside a step. */
 export interface Hop {
@@ -62,13 +62,6 @@ export interface Flight {
   label: string | null;
   k: number;
   n: number;
-}
-
-/** Estimated advance of a label: Iosevka is 0.5em per Latin glyph; Hangul is ~1em. */
-function textWidth(value: string, fontSize: number): number {
-  let em = 0;
-  for (const ch of value) em += /[\u1100-\u11ff\u3000-\u9fff\uac00-\ud7af\uff00-\uffef]/.test(ch) ? 1 : 0.5;
-  return em * fontSize;
 }
 
 interface TokenEl {

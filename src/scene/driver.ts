@@ -22,7 +22,6 @@ export interface PlacedLayout extends Omit<TopicLayout, 'nodes'> {
 /** A lesson with its node ids resolved to the topic layout's positioned nodes. */
 export interface PlacedLesson extends Omit<Lesson, 'nodes'> {
   nodes: PlacedNode[];
-  world: { width: number; height: number };
   /** The whole topic map, for geometry shared by every lesson (region slabs). */
   layout: PlacedLayout;
 }

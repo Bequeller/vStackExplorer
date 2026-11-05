@@ -37,5 +37,5 @@ export function placeLesson(lesson: Lesson, meta: Pick<TopicMeta, 'layout'>): Pl
       return base && { ...base, ...ref, gx: base.gx, gy: base.gy, x: base.x, y: base.y };
     })
     .filter((n): n is PlacedNode => n !== undefined);
-  return { ...lesson, nodes, world: { width: layout.width, height: layout.height }, layout };
+  return { ...lesson, nodes, layout };
 }

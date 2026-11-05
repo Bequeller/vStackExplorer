@@ -1,6 +1,7 @@
 // Renderers for structural state views (log, queue, tree), drawn at a given animation progress.
 // The same drawing serves the scene inset, the step details, and the icon gallery (decision 0015).
 import type { LogView, QueueView, StateView, TreeView } from '../lessons/types';
+import { lerp } from './camera';
 import type { ViewDiff } from './driver';
 import { clearChildren, svg, text } from './svg';
 
@@ -37,10 +38,6 @@ export function stateViewSvg(view: LogView | QueueView | TreeView, diff: ViewDif
   el.setAttribute('viewBox', `0 0 ${size.width + 16} ${size.height + 16}`);
   el.setAttribute('width', String(size.width + 16));
   return el;
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
 }
 
 function short(value: string, max: number): string {

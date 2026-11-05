@@ -169,7 +169,7 @@ export function renderLesson(lesson: Lesson, meta: TopicMeta, startIndex: number
       else b.removeAttribute('aria-current');
     });
     for (const b of layerButtons) b.setAttribute('aria-pressed', String(b.dataset.layer === step.layer));
-    layerName.textContent = lesson.layers.find((l) => l.id === step.layer)?.label ?? step.layer;
+    layerName.textContent = timeline[index]?.layer ?? step.layer;
     window.dispatchEvent(new CustomEvent('vse:step', { detail: { index } }));
 
     timelineRows.forEach((row, i) => {
@@ -285,7 +285,7 @@ interface StateChange {
 
 function renderDetails(root: HTMLElement, lesson: PlacedLesson, step: Step, index: number, event: TimelineEvent | undefined, state: StateChange): void {
   const total = lesson.steps.length;
-  const layer = lesson.layers.find((l) => l.id === step.layer)?.label ?? step.layer;
+  const layer = event?.layer ?? step.layer;
   const kind: EventKind = step.kind === 'move' ? step.token.kind : 'state';
   const lines = step.lines ?? (step.record?.format === 'text'
     ? step.record.raw.split('\r\n').join('\n').split('\n').filter(Boolean).slice(0, 3)

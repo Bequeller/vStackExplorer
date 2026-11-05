@@ -28,6 +28,13 @@ export function text(content: string, attrs: Attrs, parent?: Element): SVGTextEl
   return node;
 }
 
+/** Estimated advance of a label: Iosevka is 0.5em per Latin glyph; Hangul is ~1em. */
+export function textWidth(value: string, fontSize: number): number {
+  let em = 0;
+  for (const ch of value) em += /[\u1100-\u11ff\u3000-\u9fff\uac00-\ud7af\uff00-\uffef]/.test(ch) ? 1 : 0.5;
+  return em * fontSize;
+}
+
 export function clearChildren(node: Element): void {
   while (node.firstChild) node.removeChild(node.firstChild);
 }

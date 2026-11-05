@@ -9,6 +9,7 @@ export class SceneView implements SceneDriver {
   private readonly network: NetworkView;
   private readonly sequence: SequenceView;
   private readonly resize: ResizeObserver | null;
+  private last: { step: Step; t: number } | null = null;
 
   constructor(host: HTMLElement, lesson: PlacedLesson, times: string[]) {
     this.root = document.createElement('div');
@@ -27,6 +28,8 @@ export class SceneView implements SceneDriver {
     this.sequence.element.toggleAttribute('hidden', mode !== 'sequence');
     if (mode === 'network') this.network.refit();
     else this.sequence.reveal();
+    // The hidden view skipped frames; bring it to the current progress.
+    if (this.last) this.update(this.last.step, this.last.t);
   }
 
   begin(step: Step, index: number, _before: NodeStates, after: NodeStates, context: StepContext): void {
@@ -34,9 +37,11 @@ export class SceneView implements SceneDriver {
     this.sequence.begin(step, index, context);
   }
 
+  /** Animates only the view on screen. */
   update(step: Step, t: number): void {
-    this.network.update(step, t);
-    this.sequence.update(step, t);
+    this.last = { step, t };
+    if (this.root.dataset.mode === 'sequence') this.sequence.update(step, t);
+    else this.network.update(step, t);
   }
 
   destroy(): void {
